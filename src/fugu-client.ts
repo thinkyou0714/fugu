@@ -175,28 +175,70 @@ export class FuguClient {
   async respond(input: string, opts: GenerateOptions = {}): Promise<FuguResult> {
     this.guardInput(input.length);
     const model = opts.model ?? this.model;
-    const start = Date.now();
-    const body: Record<string, unknown> = { ...(opts.params ?? {}), model, input };
-    if (opts.instructions) body.instructions = opts.instructions;
+    const body = this.buildBody({ model, input }, opts, "responses");
+    return this.send("/responses", body, model, opts, extractResponsesText);
+  }
+
+  /** Chat Completions API. */
+  async chat(messages: ChatMessage[], opts: GenerateOptions = {}): Promise<FuguResult> {
+    this.guardInput(messages.reduce((n, m) => n + m.content.length, 0));
+    const model = opts.model ?? this.model;
+    const body = this.buildBody({ model, messages }, opts, "chat");
+    return this.send("/chat/completions", body, model, opts, extractChatText);
+  }
+
+  /**
+   * Build a non-streaming request body for the Responses ("responses") or Chat
+   * Completions ("chat") endpoint from the shared GenerateOptions. Endpoint-specific
+   * params (instructions / previous_response_id / store, tool mapping, output-token
+   * field) are gated on `kind` so the two public methods stay one-liners.
+   */
+  private buildBody(
+    payload: Record<string, unknown>,
+    opts: GenerateOptions,
+    kind: "responses" | "chat",
+  ): Record<string, unknown> {
+    const body: Record<string, unknown> = { ...(opts.params ?? {}), ...payload };
+    if (kind === "responses" && opts.instructions) body.instructions = opts.instructions;
     if (opts.reasoningEffort) body.reasoning = { effort: opts.reasoningEffort };
-    if (opts.tools) body.tools = mapToolsForResponses(opts.tools);
+    if (opts.tools) {
+      body.tools = kind === "responses" ? mapToolsForResponses(opts.tools) : mapToolsForChat(opts.tools);
+    }
     if (opts.toolChoice) body.tool_choice = opts.toolChoice;
-    if (opts.previousResponseId) body.previous_response_id = opts.previousResponseId;
-    if (opts.store !== undefined) body.store = opts.store;
-    this.applyOutputCap(body, "max_output_tokens", opts);
-    const cacheKey = this.cacheKey("/responses", body, opts);
+    if (kind === "responses") {
+      if (opts.previousResponseId) body.previous_response_id = opts.previousResponseId;
+      if (opts.store !== undefined) body.store = opts.store;
+    }
+    this.applyOutputCap(body, kind === "responses" ? "max_output_tokens" : "max_completion_tokens", opts);
+    return body;
+  }
+
+  /**
+   * Shared non-streaming request flow: serve from cache when possible, otherwise send
+   * the request, build the typed result, populate the cache, and emit the response event.
+   * `extractText` pulls the assistant text out of the endpoint's raw JSON shape.
+   */
+  private async send(
+    endpoint: string,
+    body: Record<string, unknown>,
+    model: string,
+    opts: GenerateOptions,
+    extractText: (json: unknown) => string,
+  ): Promise<FuguResult> {
+    const start = Date.now();
+    const cacheKey = this.cacheKey(endpoint, body, opts);
     if (cacheKey) {
       const hit = await this.cache?.get(cacheKey);
       if (hit) {
         const cached = { ...hit, cached: true };
-        this.emitResponse("/responses", model, cached, Date.now() - start);
+        this.emitResponse(endpoint, model, cached, Date.now() - start);
         return cached;
       }
     }
-    const { json, requestId } = await this.request("/responses", body, model, opts);
-    const result = this.buildResult(json, model, extractResponsesText(json), requestId, opts);
+    const { json, requestId } = await this.request(endpoint, body, model, opts);
+    const result = this.buildResult(json, model, extractText(json), requestId, opts);
     if (cacheKey) await this.cache?.set(cacheKey, result);
-    this.emitResponse("/responses", model, result, Date.now() - start);
+    this.emitResponse(endpoint, model, result, Date.now() - start);
     return result;
   }
 
@@ -206,32 +248,6 @@ export class FuguClient {
     // Never cache tool calls (side effects) or server-side stateful chaining.
     if (opts.tools || opts.previousResponseId || opts.store) return undefined;
     return cacheKeyFor(endpoint, body);
-  }
-
-  /** Chat Completions API. */
-  async chat(messages: ChatMessage[], opts: GenerateOptions = {}): Promise<FuguResult> {
-    this.guardInput(messages.reduce((n, m) => n + m.content.length, 0));
-    const model = opts.model ?? this.model;
-    const start = Date.now();
-    const body: Record<string, unknown> = { ...(opts.params ?? {}), model, messages };
-    if (opts.reasoningEffort) body.reasoning = { effort: opts.reasoningEffort };
-    if (opts.tools) body.tools = mapToolsForChat(opts.tools);
-    if (opts.toolChoice) body.tool_choice = opts.toolChoice;
-    this.applyOutputCap(body, "max_completion_tokens", opts);
-    const cacheKey = this.cacheKey("/chat/completions", body, opts);
-    if (cacheKey) {
-      const hit = await this.cache?.get(cacheKey);
-      if (hit) {
-        const cached = { ...hit, cached: true };
-        this.emitResponse("/chat/completions", model, cached, Date.now() - start);
-        return cached;
-      }
-    }
-    const { json, requestId } = await this.request("/chat/completions", body, model, opts);
-    const result = this.buildResult(json, model, extractChatText(json), requestId, opts);
-    if (cacheKey) await this.cache?.set(cacheKey, result);
-    this.emitResponse("/chat/completions", model, result, Date.now() - start);
-    return result;
   }
 
   /**
@@ -480,15 +496,18 @@ export class FuguClient {
     }
   }
 
-  private async sendOnce(
+  /**
+   * Resolve the effective timeout, fire the request, and read the x-request-id header.
+   * Shared by the buffered (`sendOnce`) and streaming (`stream`) paths; the response body
+   * is left unconsumed for the caller to read or stream.
+   */
+  private async openRequest(
     path: string,
     body: unknown,
     model: string,
     opts: GenerateOptions,
-    idempotencyKey: string,
-    attempt: number,
-  ): Promise<RawResponse> {
-    this.onRequest?.({ path, model, attempt });
+    idempotencyKey?: string,
+  ): Promise<{ res: Response; requestId?: string; timeoutMs: number }> {
     const url = `${this.baseUrl}${path}`;
     const timeoutMs = opts.timeoutMs ?? this.timeoutOverrideMs ?? defaultTimeoutMs(model, opts.reasoningEffort);
     const res = await this.doFetch(
@@ -499,6 +518,19 @@ export class FuguClient {
       opts.signal,
     );
     const requestId = res.headers.get("x-request-id") ?? res.headers.get("x-requestid") ?? undefined;
+    return { res, requestId, timeoutMs };
+  }
+
+  private async sendOnce(
+    path: string,
+    body: unknown,
+    model: string,
+    opts: GenerateOptions,
+    idempotencyKey: string,
+    attempt: number,
+  ): Promise<RawResponse> {
+    this.onRequest?.({ path, model, attempt });
+    const { res, requestId, timeoutMs } = await this.openRequest(path, body, model, opts, idempotencyKey);
     let rawText: string;
     try {
       rawText = await res.text();
@@ -548,16 +580,7 @@ export class FuguClient {
   ): AsyncGenerator<FuguStreamEvent> {
     this.requireApiKey();
     this.budget?.check();
-    const url = `${this.baseUrl}${path}`;
-    const timeoutMs = opts.timeoutMs ?? this.timeoutOverrideMs ?? defaultTimeoutMs(model, opts.reasoningEffort);
-    const res = await this.doFetch(
-      url,
-      { method: "POST", headers: this.headers(), body: JSON.stringify(body) },
-      path,
-      timeoutMs,
-      opts.signal,
-    );
-    const requestId = res.headers.get("x-request-id") ?? res.headers.get("x-requestid") ?? undefined;
+    const { res, requestId, timeoutMs } = await this.openRequest(path, body, model, opts);
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       throw errorFromResponse(res.status, text, res.headers);
