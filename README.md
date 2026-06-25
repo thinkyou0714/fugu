@@ -1,4 +1,4 @@
-# fugu-poc
+# @thinkyou0714/fugu
 
 Zero-dependency TypeScript **client + CLI** for the **Sakana Fugu** OpenAI-compatible API.
 
@@ -47,8 +47,8 @@ to answer directly or to delegate to and synthesize a team of expert frontier mo
 ## Install
 
 ```bash
-npm install fugu-poc        # core (zero deps)
-npm install fugu-poc openai # optional: the ./openai adapter
+npm install @thinkyou0714/fugu        # core (zero deps)
+npm install @thinkyou0714/fugu openai # optional: the ./openai adapter
 ```
 
 ## CLI
@@ -78,10 +78,25 @@ to a concrete fix (401 → re-copy the key, 403 → plan/model access, 429 → w
 connection/parse → check `SAKANA_BASE_URL`, timeout → raise/retry). Exit codes: `0` pass,
 `1` reached the API but failed, `2` not configured (no key) — so CI can skip cleanly.
 
+## Troubleshooting
+
+`npm run smoke` and the CLI map every typed error to a concrete fix. The same diagnosis
+applies in code — branch on `err.code`, or use the exported type guards (`isAuthError`,
+`isRetryable`, …):
+
+| Error (`code` / status) | Likely cause | Fix |
+|---|---|---|
+| `auth` (401) | key missing / invalid / expired | re-copy `SAKANA_API_KEY` from the console |
+| `permission` (403) | plan or model not allowed | check tier + model access (`fugu-ultra` may need a higher plan) |
+| `rate_limit` (429) | too many requests | wait `retryAfterMs`, lower concurrency |
+| `connection` / `parse` | wrong base URL / non-Fugu endpoint | verify `SAKANA_BASE_URL` (default `https://api.sakana.ai/v1`) |
+| `timeout` | slow run or wrong host | raise the timeout / retry; instant timeouts ⇒ check the host |
+| `bad_request` (400/404/422) | bad model id or params | check the model (`fugu` / `fugu-ultra`) and request body |
+
 ## Programmatic
 
 ```ts
-import { createClient, loadConfig, FuguRateLimitError } from "fugu-poc";
+import { createClient, loadConfig, FuguRateLimitError } from "@thinkyou0714/fugu";
 
 const client = createClient(loadConfig());
 try {
@@ -96,7 +111,7 @@ try {
 ### Streaming + budget + routing
 
 ```ts
-import { createClient, loadConfig, BudgetGuard, chooseModel } from "fugu-poc";
+import { createClient, loadConfig, BudgetGuard, chooseModel } from "@thinkyou0714/fugu";
 
 const client = createClient(loadConfig(), { budget: new BudgetGuard({ limitUsd: 5 }) });
 const model = chooseModel({ chars: prompt.length, task: "code" }); // fugu ↔ fugu-ultra
@@ -110,7 +125,7 @@ for await (const ev of client.respondStream(prompt, { model })) {
 ### Tools, structured output, observability
 
 ```ts
-import { createClient, loadConfig, functionTool, webSearchTool } from "fugu-poc";
+import { createClient, loadConfig, functionTool, webSearchTool } from "@thinkyou0714/fugu";
 
 const client = createClient(loadConfig(), { onResponse: (e) => metrics.record(e) });
 
@@ -134,7 +149,7 @@ const { data } = await client.respondJson<{ score: number }>("Rate this 1-10", {
 ### Cache, confidence cascade & evals
 
 ```ts
-import { createClient, loadConfig, MemoryCache, Cascade, llmJudge, runEval, llmGrader } from "fugu-poc";
+import { createClient, loadConfig, MemoryCache, Cascade, llmJudge, runEval, llmGrader } from "@thinkyou0714/fugu";
 
 // opt-in cache: identical requests are free (no network, no budget charge)
 const cache = new MemoryCache({ maxEntries: 1000, ttlMs: 60 * 60_000 });
@@ -155,7 +170,7 @@ console.log(report.passRate, report.totalCostUsd, report.avgLatencyMs);
 ### Router + proxy (use Fugu from any OpenAI-SDK tool, with failover)
 
 ```ts
-import { FuguClient, FuguRouter, createProxyServer, loadConfig } from "fugu-poc";
+import { FuguClient, FuguRouter, createProxyServer, loadConfig } from "@thinkyou0714/fugu";
 
 const router = new FuguRouter({
   providers: [
@@ -172,7 +187,7 @@ createProxyServer({ backend: router, token: "local-secret" }).listen(4141);
 ### Optional OpenAI-SDK adapter
 
 ```ts
-import { createFuguOpenAI } from "fugu-poc/openai"; // requires `openai` installed
+import { createFuguOpenAI } from "@thinkyou0714/fugu/openai"; // requires `openai` installed
 const openai = await createFuguOpenAI();
 const res = await openai.responses.create({ model: "fugu-ultra", input: "hi" });
 ```
@@ -194,7 +209,7 @@ npm run check:exports  # build + publint + are-the-types-wrong (esm-only)
 ## Layout
 
 ```
-fugu-poc/
+fugu/
 ├── src/
 │   ├── index.ts        # public API barrel (the supported entry point)
 │   ├── config.ts       # env loading, defaults, effort-scaled timeout
@@ -235,16 +250,6 @@ fugu-poc/
 Releases use [Changesets](https://github.com/changesets/changesets) + npm **Trusted
 Publishing** (OIDC, no long-lived token, automatic provenance). Add a changeset per
 user-facing change with `npm run changeset`. See `.github/workflows/release.yml`.
-
-## Move into its own repository
-
-This folder is self-contained (intended home: `thinkyou0714/fugu`). The CI workflows under
-`.github/` activate once it is a repository root.
-
-```bash
-cd fugu-poc && git init && git add -A && git commit -m "init: fugu"
-git remote add origin git@github.com:thinkyou0714/fugu.git && git push -u origin main
-```
 
 ## API reference (as of 2026-06)
 
