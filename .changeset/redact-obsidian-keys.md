@@ -1,5 +1,5 @@
 ---
-"fugu-poc": patch
+"@thinkyou0714/fugu": patch
 ---
 
 `redact()` now also censors `obsidian_api_key` / `obsidian-api-key` keys in deep-object

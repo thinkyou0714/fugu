@@ -44,14 +44,20 @@ export function redactString(input: string): string {
       .replace(/\bBearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]")
       // OpenAI-style keys with a hyphen or underscore prefix (e.g. "sk" + "-"/"_" + token).
       .replace(/\bsk[-_][A-Za-z0-9._-]{6,}/gi, "[REDACTED]")
-      // Labelled secrets in free text: api_key=…, secret: …, "password":"…", etc. The
-      // separator group tolerates a closing quote after the label and an opening quote
-      // before the value so JSON-shaped blobs (`"api_key": "…"`) are scrubbed too — the
-      // previous `[=:]`-only rule never matched the `"` between a quoted key and its colon.
+      // Labelled secrets in free text: api_key=…, secret: …, "password":"…", `tok`, etc.
+      // The separator tolerates a quote around the label so JSON / single-quoted blobs
+      // (`"api_key": "…"`, `'api_key': '…'`) are scrubbed too. The value matcher is
+      // quote-aware AND escape-aware: a double/single/backtick-quoted value is redacted IN
+      // FULL — even with spaces or an escaped quote (`"a\" b"`) — while an unquoted value
+      // stops at the first delimiter. (A bare `[^\s…]+` value leaked the tail past the
+      // first space; a non-escape-aware `"[^"]*"` leaked the tail past an escaped quote.)
       // (The Authorization header is covered by the Bearer rule above + the object deny-list.)
       .replace(
-        /\b(api[-_]?key|api[-_]?token|access[-_]?token|refresh[-_]?token|client[-_]?secret|secret|password|passwd)\b("?\s*[=:]\s*"?)[^\s"',}\]]+/gi,
-        "$1$2[REDACTED]",
+        /\b(api[-_]?key|api[-_]?token|access[-_]?token|refresh[-_]?token|client[-_]?secret|secret|password|passwd)\b(["']?\s*[=:]\s*)(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|`((?:[^`\\]|\\.)*)`|([^\s"',}\]]+))/gi,
+        (_m, key, sep, dq, sq, bt) => {
+          const quote = dq !== undefined ? '"' : sq !== undefined ? "'" : bt !== undefined ? "`" : "";
+          return `${key}${sep}${quote}[REDACTED]${quote}`;
+        },
       )
   );
 }

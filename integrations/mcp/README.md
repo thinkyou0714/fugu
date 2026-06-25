@@ -34,4 +34,4 @@ claude mcp add fugu -- node /abs/path/integrations/mcp/src/bin.ts
 ```
 
 The tool **logic** lives in `src/handlers.ts` (no SDK import) and is unit-tested from the
-core test suite (`fugu-poc/test/mcp.test.ts`); `src/server.ts` is the thin SDK wiring.
+core test suite (`test/mcp.test.ts`); `src/server.ts` is the thin SDK wiring.

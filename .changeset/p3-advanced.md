@@ -1,5 +1,5 @@
 ---
-"fugu-poc": minor
+"@thinkyou0714/fugu": minor
 ---
 
 P3 advanced API & observability: tool / function calling (`tools`, `toolChoice`,

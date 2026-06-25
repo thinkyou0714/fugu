@@ -1,5 +1,5 @@
 ---
-"fugu-poc": minor
+"@thinkyou0714/fugu": minor
 ---
 
 P4 ecosystem (router + proxy): a multi-provider `FuguRouter` that fails over across

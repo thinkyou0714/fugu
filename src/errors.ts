@@ -220,3 +220,37 @@ export function errorFromResponse(status: number, body: string, headers: Headers
       return new FuguAPIError(message, options);
   }
 }
+
+// --- Type guards ---------------------------------------------------------------
+// Ergonomic `unknown`-narrowing helpers for `catch (err)` blocks, so callers don't
+// have to import the classes or remember the `.code` strings.
+
+/** True when `value` is any FuguError. */
+export function isFuguError(value: unknown): value is FuguError {
+  return value instanceof FuguError;
+}
+
+/** True when the error is transient — a retry could plausibly succeed. */
+export function isRetryable(value: unknown): value is FuguError {
+  return value instanceof FuguError && value.isRetryable;
+}
+
+/** True for a 401 authentication failure (missing / invalid / expired key). */
+export function isAuthError(value: unknown): value is FuguAuthError {
+  return value instanceof FuguAuthError;
+}
+
+/** True for a 403 permission failure (plan / model / region not allowed). */
+export function isPermissionError(value: unknown): value is FuguPermissionError {
+  return value instanceof FuguPermissionError;
+}
+
+/** True for a 429 rate-limit failure (read `retryAfterMs` to back off). */
+export function isRateLimitError(value: unknown): value is FuguRateLimitError {
+  return value instanceof FuguRateLimitError;
+}
+
+/** True for a request that exceeded its (effort-scaled) timeout. */
+export function isTimeoutError(value: unknown): value is FuguTimeoutError {
+  return value instanceof FuguTimeoutError;
+}
