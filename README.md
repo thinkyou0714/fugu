@@ -182,7 +182,7 @@ const res = await openai.responses.create({ model: "fugu-ultra", input: "hi" });
 Source runs directly via `node --experimental-strip-types` — no build needed for dev/tests.
 
 ```bash
-npm test            # 157 tests, offline (mocked fetch) + real timeout wiring
+npm test            # offline (mocked fetch) + real timeout wiring
 npm run smoke       # live: one real round-trip to api.sakana.ai (needs SAKANA_API_KEY)
 npm run coverage    # tests + coverage thresholds
 npm run typecheck   # tsc --noEmit (erasableSyntaxOnly)

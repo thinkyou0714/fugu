@@ -57,6 +57,7 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "test": "node --experimental-strip-types --test test/*.test.ts",
+    "test:watch": "node --experimental-strip-types --test --watch test/*.test.ts",
     "coverage": "node --experimental-strip-types --test --experimental-test-coverage --test-coverage-lines=80 --test-coverage-branches=75 --test-coverage-functions=85 test/*.test.ts",
     "check:exports": "npm run build && publint --strict && attw --pack --profile esm-only",
     "prepublishOnly": "npm run build",

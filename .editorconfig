@@ -1,0 +1,15 @@
+# EditorConfig (https://editorconfig.org) — keeps editors aligned with biome.json
+# (space indent / width 2, double quotes, LF) so non-biome tooling matches too.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+max_line_length = 112
+
+[*.md]
+trim_trailing_whitespace = false
