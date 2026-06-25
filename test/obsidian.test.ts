@@ -169,3 +169,21 @@ test("encodes spaces and subfolders in a vault path", async () => {
     ["GET My Notes/Tasks 2026.md", "POST My Notes/Tasks 2026.md"],
   );
 });
+
+test("passes an AbortSignal (timeout) to the underlying fetch", async () => {
+  let seenSignal: unknown;
+  const fn = (async (_url: string, init?: { signal?: unknown }) => {
+    seenSignal = init?.signal;
+    return new Response("# note", { status: 200, headers: { "content-type": "text/markdown" } });
+  }) as unknown as typeof fetch;
+  await obsidian(fn).getActiveNote();
+  assert.ok(seenSignal instanceof AbortSignal);
+});
+
+test("encoded '..' is a literal segment (defense holds), not a path traversal", async () => {
+  const obs = obsidianMock({});
+  // Not rejected at validation: it reaches the server as ONE encoded segment and 404s.
+  await assert.rejects(obsidian(obs.fetchImpl).getNote("%2e%2e%2fetc%2fpasswd"), /Obsidian API error 404/);
+  assert.equal(obs.calls.length, 1);
+  assert.equal(obs.calls[0].key, "%2e%2e%2fetc%2fpasswd"); // literal name, never "../etc/passwd"
+});
