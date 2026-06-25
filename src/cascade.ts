@@ -59,6 +59,11 @@ export interface CascadeOutcome {
   escalations: number;
   /** Verdicts collected from the judge, in order. */
   verdicts: JudgeVerdict[];
+  /**
+   * Total estimated USD across EVERY stage that ran (not just the final one), so the cost
+   * of escalating — the cheap attempts you paid for before settling — is visible.
+   */
+  totalCostUsd: number;
 }
 
 function clamp01(n: number): number {
@@ -157,11 +162,13 @@ export class Cascade {
 
     const verdicts: JudgeVerdict[] = [];
     let escalations = 0;
+    let totalCostUsd = 0;
     let result: FuguResult | undefined;
 
     for (; index < stages.length; index++) {
       const stage = stages[index];
       result = await this.client.respond(input, { ...opts, model: stage.model, reasoningEffort: stage.effort });
+      totalCostUsd += result.costUsd ?? 0;
       if (index === stages.length - 1) break; // last stage: accept whatever it returns
       const verdict = await judge(input, result, stage);
       verdicts.push(verdict);
@@ -173,6 +180,13 @@ export class Cascade {
     // result is always assigned (stages is non-empty and the loop runs at least once).
     const finalResult = result as FuguResult;
     startStage?.set(key, index);
-    return { result: finalResult, stage: stages[index], stageIndex: index, escalations, verdicts };
+    return {
+      result: finalResult,
+      stage: stages[index],
+      stageIndex: index,
+      escalations,
+      verdicts,
+      totalCostUsd,
+    };
   }
 }
