@@ -174,8 +174,10 @@ export function parseApiError(body: string): ParsedApiError | undefined {
     const type = getProp(o, "type");
     const code = getProp(o, "code");
     if (typeof message === "string") result.message = redactString(clip(message, 512));
-    if (typeof type === "string") result.type = type;
-    if (typeof code === "string") result.code = code;
+    // Redact type/code too: some providers echo the offending value into the slug
+    // (e.g. type "invalid_api_key_sk-…"), which would otherwise bypass message redaction.
+    if (typeof type === "string") result.type = redactString(clip(type, 200));
+    if (typeof code === "string") result.code = redactString(clip(code, 200));
     return result;
   };
   const errObj = getProp(parsed, "error");

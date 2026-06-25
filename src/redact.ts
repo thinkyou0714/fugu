@@ -6,15 +6,33 @@
  * can reach stdout/stderr, a logger, or an error message.
  */
 
-/** Header/field names whose values must never be surfaced. */
+/**
+ * Header/field names whose values must never be surfaced. Exact (lower-cased) match, so
+ * benign look-alikes like `total_tokens` / a logprobs `token` field are NOT redacted —
+ * only fields whose name *is* a credential. Covers the common bearer/secret aliases, not
+ * just this API's own keys, since `redact()` runs over arbitrary upstream payloads.
+ */
 const DENY_KEYS = new Set([
   "authorization",
+  "proxy-authorization",
   "apikey",
   "api_key",
+  "api-key",
   "x-api-key",
+  "x-auth-token",
   "sakana_api_key",
+  "sakana-api-key",
   "obsidian_api_key",
   "obsidian-api-key",
+  "access_token",
+  "refresh_token",
+  "id_token",
+  "auth_token",
+  "secret",
+  "client_secret",
+  "password",
+  "passwd",
+  "private_key",
   "cookie",
   "set-cookie",
 ]);
@@ -26,11 +44,14 @@ export function redactString(input: string): string {
       .replace(/\bBearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]")
       // OpenAI-style keys with a hyphen or underscore prefix (e.g. "sk" + "-"/"_" + token).
       .replace(/\bsk[-_][A-Za-z0-9._-]{6,}/gi, "[REDACTED]")
-      // Labelled secrets in free text: api_key=…, token: …, password=…, etc.
+      // Labelled secrets in free text: api_key=…, secret: …, "password":"…", etc. The
+      // separator group tolerates a closing quote after the label and an opening quote
+      // before the value so JSON-shaped blobs (`"api_key": "…"`) are scrubbed too — the
+      // previous `[=:]`-only rule never matched the `"` between a quoted key and its colon.
       // (The Authorization header is covered by the Bearer rule above + the object deny-list.)
       .replace(
-        /\b(api[-_]?key|api[-_]?token|access[-_]?token|secret|password)\b(\s*[=:]\s*)("?)[^\s"',}]+/gi,
-        "$1$2$3[REDACTED]",
+        /\b(api[-_]?key|api[-_]?token|access[-_]?token|refresh[-_]?token|client[-_]?secret|secret|password|passwd)\b("?\s*[=:]\s*"?)[^\s"',}\]]+/gi,
+        "$1$2[REDACTED]",
       )
   );
 }
