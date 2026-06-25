@@ -112,3 +112,27 @@ test("fugu_chat forwards every message role unchanged", async () => {
     ["system", "developer", "user", "assistant"],
   );
 });
+
+test("fugu_respond surfaces usage + requestId via _meta", async () => {
+  const fn = (async () =>
+    new Response(JSON.stringify({ output_text: "hi", usage: { input_tokens: 3, output_tokens: 5 } }), {
+      status: 200,
+      headers: { "content-type": "application/json", "x-request-id": "req_meta" },
+    })) as unknown as typeof fetch;
+  const r = await fuguRespond(client(fn), { input: "hello" });
+  assert.equal(r._meta?.requestId, "req_meta");
+  assert.equal((r._meta?.usage as { inputTokens?: number } | undefined)?.inputTokens, 3);
+});
+
+test("handler redacts a secret in a non-FuguError thrown by the client (defense-in-depth)", async () => {
+  const fakeSecret = ["sk", "live", "F00DBABE1234567890ab"].join("-");
+  const leaky = {
+    respond: async () => {
+      throw new Error(`upstream blew up with Authorization: Bearer ${fakeSecret}`);
+    },
+  } as unknown as FuguClient;
+  const r = await fuguRespond(leaky, { input: "x" });
+  assert.ok(r.isError);
+  assert.ok(!r.content[0].text.includes(fakeSecret), "raw secret must not appear");
+  assert.match(r.content[0].text, /\[REDACTED\]/);
+});
