@@ -168,11 +168,18 @@ export class FuguClient {
     this.onResponse = options.onResponse;
     this.logger = options.logger ?? noopLogger;
     if (typeof this.fetchImpl !== "function") {
-      throw new FuguConfigError("No fetch implementation available. Use Node >= 18 or pass options.fetch.");
+      throw new FuguConfigError("No fetch implementation available. Use Node >= 22.9 or pass options.fetch.");
     }
   }
 
-  /** Responses API (recommended). `input` is the user prompt. */
+  /**
+   * Generate via the Responses API (recommended for generation).
+   *
+   * @param input The user prompt.
+   * @param opts Per-call options — model, reasoningEffort, tools, instructions, caching, etc.
+   * @returns Typed result: text, usage, estimated cost, status, requestId, and any toolCalls.
+   * @throws {FuguError} Subclasses for config/auth/rate-limit/timeout/connection/parse failures.
+   */
   async respond(input: string, opts: GenerateOptions = {}): Promise<FuguResult> {
     this.guardInput(input.length);
     const model = opts.model ?? this.model;
@@ -180,7 +187,14 @@ export class FuguClient {
     return this.send("/responses", body, model, opts, extractResponsesText);
   }
 
-  /** Chat Completions API. */
+  /**
+   * Generate via the Chat Completions API.
+   *
+   * @param messages The chat transcript (system / developer / user / assistant turns).
+   * @param opts Per-call options — model, reasoningEffort, tools, caching, etc.
+   * @returns Typed result (see {@link respond}).
+   * @throws {FuguError} Subclasses on request failure.
+   */
   async chat(messages: ChatMessage[], opts: GenerateOptions = {}): Promise<FuguResult> {
     this.guardInput(messages.reduce((n, m) => n + m.content.length, 0));
     const model = opts.model ?? this.model;
@@ -254,6 +268,11 @@ export class FuguClient {
   /**
    * Agentic tool loop on Chat Completions: calls the model, runs any requested tools
    * via `handlers`, feeds the results back, and repeats up to `maxIterations` (default 5).
+   *
+   * @param messages Initial transcript; assistant + tool turns are appended as the loop runs.
+   * @param opts Generation options plus `handlers` (tool name → fn) and optional `maxIterations`.
+   * @returns The final result; if the iteration cap is reached it may still carry `toolCalls`.
+   * @throws {FuguError} Subclasses on request failure (handler errors are fed back to the model).
    */
   async runTools(
     messages: Array<ChatMessage | Record<string, unknown>>,
@@ -275,7 +294,8 @@ export class FuguClient {
       // Force the tool on the first turn only; relax "required" to "auto" afterwards so the
       // model can produce a final answer instead of being forced to call a tool every turn.
       if (opts.toolChoice) {
-        body.tool_choice = i === 0 || opts.toolChoice !== "required" ? opts.toolChoice : "auto";
+        const forcedFirstTurn = i === 0 || opts.toolChoice !== "required";
+        body.tool_choice = forcedFirstTurn ? opts.toolChoice : "auto";
       }
       if (opts.reasoningEffort) body.reasoning = { effort: opts.reasoningEffort };
       this.applyOutputCap(body, "max_completion_tokens", opts);
@@ -363,7 +383,14 @@ export class FuguClient {
     );
   }
 
-  /** Streaming Responses API. Yields text deltas then a terminal aggregated result. */
+  /**
+   * Stream via the Responses API: yields incremental `delta` events, then one terminal
+   * `done` event carrying the aggregated {@link FuguResult}.
+   *
+   * @param input The user prompt.
+   * @param opts Per-call options (model, reasoningEffort, …).
+   * @throws {FuguError} Subclasses if the stream cannot be opened or fails mid-flight.
+   */
   async *respondStream(input: string, opts: GenerateOptions = {}): AsyncGenerator<FuguStreamEvent> {
     this.guardInput(input.length);
     const model = opts.model ?? this.model;
@@ -374,7 +401,13 @@ export class FuguClient {
     yield* this.stream("/responses", body, model, "responses", opts);
   }
 
-  /** Streaming Chat Completions API. */
+  /**
+   * Stream via the Chat Completions API: yields `delta` events then a terminal `done` event.
+   *
+   * @param messages The chat transcript.
+   * @param opts Per-call options (model, reasoningEffort, …).
+   * @throws {FuguError} Subclasses if the stream cannot be opened or fails mid-flight.
+   */
   async *chatStream(messages: ChatMessage[], opts: GenerateOptions = {}): AsyncGenerator<FuguStreamEvent> {
     this.guardInput(messages.reduce((n, m) => n + m.content.length, 0));
     const model = opts.model ?? this.model;
