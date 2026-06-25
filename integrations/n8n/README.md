@@ -1,8 +1,10 @@
 # n8n-nodes-fugu
 
 An [n8n](https://n8n.io) **community node** for **Sakana Fugu** — call Fugu's
-frontier-model pool from any workflow. Declarative node (routing-based, no custom
-`execute()`), with a `Fugu API` credential that injects your key as a Bearer token.
+frontier-model pool from any workflow. A custom `execute()` shapes the output for downstream
+nodes (a clean `text` field, not raw API JSON), with a `Fugu API` credential that injects your
+key as a Bearer token. The node is also `usableAsTool`, so an n8n **AI Agent** can call Fugu
+as a "second opinion" tool.
 
 ## Node
 
@@ -13,8 +15,17 @@ frontier-model pool from any workflow. Declarative node (routing-based, no custo
 | Respond   | `POST /responses`             | Input, Model, Reasoning Effort      |
 | Chat      | `POST /chat/completions`      | Messages (JSON array), Model        |
 
-The node returns Fugu's raw JSON (so `output_text` / `usage` / orchestration tokens are all
-available downstream — use a **Set**/**Edit Fields** node to pluck what you need).
+Each input item is processed independently. The node returns one row per item:
+
+| Field    | Meaning                                                              |
+|----------|---------------------------------------------------------------------|
+| `text`   | The assistant's answer (`output_text`, or `choices[0].message.content`). |
+| `model`  | The model id the API reports (falls back to the requested one).      |
+| `status` | Response status when present (e.g. `completed` / `incomplete`).      |
+| `usage`  | Token usage, including Fugu's hidden orchestration tokens.           |
+| `raw`    | The untouched API payload (nothing is lost — pluck anything else here). |
+
+Enable **Continue On Fail** to get a per-item `{ error }` row instead of aborting the run.
 
 ## Credential — Fugu API
 
@@ -50,7 +61,7 @@ and credential).
 ```
 integrations/n8n/
 ├── credentials/FuguApi.credentials.ts   # ICredentialType: Bearer auth + /models test
-├── nodes/Fugu/Fugu.node.ts              # declarative INodeType (routing per operation)
+├── nodes/Fugu/Fugu.node.ts              # INodeType with execute() (one HTTP call per item)
 ├── nodes/Fugu/fugu.svg                  # node icon
 ├── package.json                         # n8n: { credentials, nodes }
 └── tsconfig.json                        # CJS build -> dist/
