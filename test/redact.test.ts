@@ -39,6 +39,20 @@ test("redacts a JSON-shaped blob (quoted key + quoted multi-word value)", () => 
   assert.equal(redactString('{"api_key": "live multi word"}'), '{"api_key": "[REDACTED]"}');
 });
 
+// --- escape/quote edge cases (Fugu adversarial review) ---
+
+test("redacts a value containing an escaped quote (no tail leak)", () => {
+  assert.equal(redactString('password="a\\" b c"'), 'password="[REDACTED]"');
+});
+
+test("redacts a backtick-quoted multi-word value", () => {
+  assert.equal(redactString("secret=`a b c`"), "secret=`[REDACTED]`");
+});
+
+test("redacts a single-quoted key + value", () => {
+  assert.equal(redactString("'api_key': 'x y z'"), "'api_key': '[REDACTED]'");
+});
+
 // --- must NOT over-redact ordinary prose ---
 
 test("does not touch the word 'secret' without a separator", () => {
