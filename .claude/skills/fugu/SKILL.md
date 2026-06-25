@@ -24,9 +24,11 @@ diff, a genuinely hard reasoning problem, or hedging against a single-vendor bli
 
 ## Guidance
 
-- **Right-size the call.** Default to `fugu`; reach for `fugu-ultra` + higher `effort` only
-  for genuinely hard or high-stakes work — Fugu bills hidden orchestration tokens, so a
-  tight prompt with just the relevant context is both cheaper and sharper than dumping files.
+- **Right-size the call.** Prefer `fugu` for these checks and reach for `fugu-ultra` + higher
+  `effort` only for genuinely hard or high-stakes work. (This is a per-call *recommendation*,
+  not the client default — `FuguClient`/the CLI fall back to `fugu-ultra` when no model is
+  given.) Fugu bills hidden orchestration tokens, so a tight prompt with just the relevant
+  context is both cheaper and sharper than dumping files.
 - **Frame reviews to refute.** Ask Fugu to find concrete bugs / missed cases / risks with
   specifics (file, line, scenario), and to say so plainly if it's sound.
 - **Treat the reply as one opinion.** Surface where Fugu and the main agent disagree instead
