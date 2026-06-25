@@ -8,6 +8,7 @@ import { getProp, errorMessage, toError, requestIdFrom } from "../src/internal.t
 import { retryDelayMs, DEFAULT_RETRY } from "../src/retry.ts";
 import { FuguRateLimitError, parseApiError } from "../src/errors.ts";
 import { BudgetGuard } from "../src/budget.ts";
+import { redact } from "../src/redact.ts";
 
 test("getProp reads own data keys and refuses prototype-chain keys", () => {
   assert.equal(getProp({ a: 1 }, "a"), 1);
@@ -59,4 +60,17 @@ test("BudgetGuard.check(estimated) throws before spend would exceed the limit", 
   budget.record(0.6);
   assert.throws(() => budget.check(0.5), /Budget exceeded/); // 0.6 + 0.5 > 1
   assert.doesNotThrow(() => budget.check(0.3)); // 0.6 + 0.3 <= 1
+});
+
+test("redact censors deny-listed keys (incl. obsidian + sakana api keys), nested too", () => {
+  const out = redact({
+    obsidian_api_key: "s1",
+    sakana_api_key: "s2",
+    nested: { "x-api-key": "s3", keep: "ok" },
+  }) as Record<string, unknown>;
+  assert.equal(out.obsidian_api_key, "[REDACTED]");
+  assert.equal(out.sakana_api_key, "[REDACTED]");
+  const nested = out.nested as Record<string, unknown>;
+  assert.equal(nested["x-api-key"], "[REDACTED]");
+  assert.equal(nested.keep, "ok");
 });

@@ -13,6 +13,8 @@ const DENY_KEYS = new Set([
   "api_key",
   "x-api-key",
   "sakana_api_key",
+  "obsidian_api_key",
+  "obsidian-api-key",
   "cookie",
   "set-cookie",
 ]);
