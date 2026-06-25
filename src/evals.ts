@@ -125,10 +125,14 @@ function summarize(rows: EvalRow[]): EvalReport {
 export async function runEval(client: Responder, cases: EvalCase[], opts: RunEvalOptions): Promise<EvalReport> {
   const now = opts.now ?? Date.now;
   const pool = new WorkPool(opts.concurrency ?? 4);
+  // Bypass the client's response cache by default: a cache hit would report ~0ms latency
+  // and $0 cost and could serve a stale answer, all of which defeat the measurement. A
+  // caller that explicitly wants cached behavior can set `generate.cache = true`.
+  const generate: GenerateOptions = { cache: false, ...opts.generate };
   const rows = await pool.map(cases, async (evalCase): Promise<EvalRow> => {
     const start = now();
     try {
-      const result = await client.respond(evalCase.input, opts.generate);
+      const result = await client.respond(evalCase.input, generate);
       const latencyMs = now() - start;
       const grade = await opts.grader(evalCase, result);
       return {

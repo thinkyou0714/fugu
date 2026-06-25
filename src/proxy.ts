@@ -11,8 +11,9 @@
  */
 
 import http from "node:http";
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { errorMessage, toError } from "./internal.ts";
+import type { ReasoningEffort } from "./config.ts";
 import type { GenerateOptions, ChatMessage, FuguStreamEvent } from "./fugu-client.ts";
 import type { FuguResult, FuguUsage } from "./types.ts";
 
@@ -58,7 +59,7 @@ async function handle(
   // Exact routes (with or without a /v1 prefix) — NOT endsWith, so /foo/chat/completions 404s.
   const route = rawPath.replace(/^\/v1(?=\/|$)/, "") || "/";
 
-  if (options.token && req.headers.authorization !== `Bearer ${options.token}`) {
+  if (options.token && !tokenMatches(req.headers.authorization, `Bearer ${options.token}`)) {
     return sendJson(res, 401, { error: { message: "Unauthorized", type: "auth" } });
   }
 
@@ -159,8 +160,43 @@ async function handleResponses(
   sendJson(res, 200, result.raw ?? { output_text: result.text });
 }
 
+/** Constant-time bearer-token comparison (avoids leaking the token via compare timing). */
+function tokenMatches(provided: string | undefined, expected: string): boolean {
+  const a = Buffer.from(provided ?? "");
+  const b = Buffer.from(expected);
+  // timingSafeEqual requires equal lengths; a length mismatch is already a non-match.
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+const EFFORTS = new Set<ReasoningEffort>(["high", "xhigh", "max"]);
+const SAMPLING_KEYS = ["temperature", "top_p", "seed", "frequency_penalty", "presence_penalty", "stop"];
+
+/**
+ * Map an OpenAI-style request body to GenerateOptions. Beyond `model`, this forwards
+ * `reasoning.effort`, the output-token cap (either field name), `instructions`, and the
+ * common sampling params — otherwise a proxy client could not control effort or sampling.
+ */
 function optsFromBody(body: Record<string, unknown>): GenerateOptions {
-  return typeof body.model === "string" ? { model: body.model } : {};
+  const opts: GenerateOptions = {};
+  if (typeof body.model === "string") opts.model = body.model;
+
+  const reasoning = body.reasoning;
+  const effort =
+    reasoning && typeof reasoning === "object" ? (reasoning as Record<string, unknown>).effort : body.effort;
+  if (typeof effort === "string" && EFFORTS.has(effort as ReasoningEffort)) {
+    opts.reasoningEffort = effort as ReasoningEffort;
+  }
+
+  const maxOut = body.max_output_tokens ?? body.max_completion_tokens ?? body.max_tokens;
+  if (typeof maxOut === "number") opts.maxOutputTokens = maxOut;
+
+  if (typeof body.instructions === "string") opts.instructions = body.instructions;
+
+  const params: Record<string, unknown> = {};
+  for (const key of SAMPLING_KEYS) if (body[key] !== undefined) params[key] = body[key];
+  if (Object.keys(params).length > 0) opts.params = params;
+
+  return opts;
 }
 
 function chunk(

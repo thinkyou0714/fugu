@@ -31,7 +31,8 @@ npm run changeset
   properties, `import =`) so `--experimental-strip-types` keeps working; relative
   imports use explicit `.ts` extensions.
 - **Never** log or store the raw API key or raw response body — redact at the
-  boundary.
+  boundary via `redact` / `redactString` (`src/redact.ts`). Errors keep only
+  whitelisted, redacted fields (`src/errors.ts`), never the raw body.
 - The public API is the curated `src/index.ts` barrel.
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/).

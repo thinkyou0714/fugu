@@ -19,7 +19,8 @@ You are typically asked for one of:
 
 1. Gather only the context that matters (Read/Grep the specific files or quote the plan).
    Keep the prompt tight — Fugu bills hidden orchestration tokens, so don't dump the repo.
-2. Choose effort and model deliberately:
+2. Choose effort and model deliberately (the client's fallback default is `fugu-ultra`; for a
+   second opinion, prefer `fugu` and escalate on purpose):
    - `fugu_respond` with `model:"fugu"` for quick checks.
    - `model:"fugu-ultra"` + `effort:"high"` (or `xhigh`/`max`) for genuinely hard or
      high-stakes reasoning. Escalate effort only when the task warrants the extra cost.

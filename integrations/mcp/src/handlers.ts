@@ -75,11 +75,12 @@ export async function fuguRespond(client: FuguClient, args: RespondArgs): Promis
 export interface ChatArgs {
   messages: ChatMessage[];
   model?: string;
+  effort?: ReasoningEffort;
 }
 
 export async function fuguChat(client: FuguClient, args: ChatArgs): Promise<ToolResult> {
   try {
-    const result = await client.chat(args.messages, { model: args.model });
+    const result = await client.chat(args.messages, { model: args.model, reasoningEffort: args.effort });
     return fromResult(result);
   } catch (err) {
     return fail(`Fugu error: ${redactString(err instanceof Error ? err.message : String(err))}`);

@@ -1,8 +1,9 @@
 /**
- * Model-selection policy: default to the cheaper `fugu`, escalate to `fugu-ultra`
+ * Model-selection policy: prefer the cheaper `fugu`, escalate to `fugu-ultra`
  * only on clear signals (long context past the price cliff, high effort, or a
- * task class that benefits from max quality). Pure function — call it yourself or
- * pass the result as `respond(..., { model })`.
+ * task class that benefits from max quality). This opt-in policy is separate from the
+ * client's own fallback default (`fugu-ultra`, see config.DEFAULT_MODEL) — call it
+ * yourself or pass the result as `respond(..., { model })`.
  */
 
 import type { ReasoningEffort } from "./config.ts";

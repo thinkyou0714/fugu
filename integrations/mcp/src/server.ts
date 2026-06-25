@@ -43,6 +43,7 @@ export function createFuguMcpServer(client: FuguClient, models: string[] = ["fug
           z.object({ role: z.enum(["system", "developer", "user", "assistant"]), content: z.string() }),
         ),
         model: modelField,
+        effort: EFFORT_ENUM.optional(),
       },
     },
     async (args) => fuguChat(client, args),
