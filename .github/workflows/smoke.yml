@@ -1,0 +1,52 @@
+# Live smoke test — hits the real api.sakana.ai. MANUAL ONLY (workflow_dispatch),
+# so it never runs on push/PR and incurs zero API cost until a maintainer triggers it.
+#
+# Prerequisite: add a repository secret named SAKANA_API_KEY (Settings → Secrets →
+# Actions). Without it the run skips cleanly (smoke.ts exits 2 = "not configured").
+#
+# NOTE: action refs use version tags for readability. Pin them to commit SHAs
+# before going live — Renovate (renovate.json, helpers:pinGitHubActionDigests)
+# does this automatically. Do not hand-edit fabricated SHAs.
+name: smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: "Optional prompt for the single live Responses call"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.9.0"
+          cache: npm
+      - run: npm ci
+      # Exit codes from examples/smoke.ts: 0 = pass, 1 = reached API but failed,
+      # 2 = no SAKANA_API_KEY (treated here as a neutral skip, not a failure).
+      # The prompt input is passed via env (not inline) to avoid shell injection.
+      - name: Live smoke
+        env:
+          SAKANA_API_KEY: ${{ secrets.SAKANA_API_KEY }}
+          SMOKE_PROMPT: ${{ inputs.prompt }}
+        run: |
+          set +e
+          if [ -n "$SMOKE_PROMPT" ]; then
+            node --experimental-strip-types examples/smoke.ts "$SMOKE_PROMPT"
+          else
+            node --experimental-strip-types examples/smoke.ts
+          fi
+          code=$?
+          if [ "$code" -eq 2 ]; then
+            echo "::warning::SAKANA_API_KEY secret not set — live smoke skipped."
+            exit 0
+          fi
+          exit $code
