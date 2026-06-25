@@ -1,5 +1,5 @@
 ---
-"fugu-poc": minor
+"@thinkyou0714/fugu": minor
 ---
 
 P0 + P1 hardening: typed `FuguError` hierarchy with secret redaction (the raw

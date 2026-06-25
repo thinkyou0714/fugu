@@ -1,5 +1,5 @@
 ---
-"fugu-poc": patch
+"@thinkyou0714/fugu": patch
 ---
 
 Internal dedup + hardening (no public API changes):

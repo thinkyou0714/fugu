@@ -1,5 +1,5 @@
 ---
-"fugu-poc": minor
+"@thinkyou0714/fugu": minor
 ---
 
 Live smoke test (`npm run smoke`): a key-gated, one-shot real round-trip against

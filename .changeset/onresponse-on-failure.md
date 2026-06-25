@@ -1,5 +1,5 @@
 ---
-"fugu-poc": minor
+"@thinkyou0714/fugu": minor
 ---
 
 `onResponse` now also fires on failure for the buffered request paths (`respond`,

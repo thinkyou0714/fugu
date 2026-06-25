@@ -1,5 +1,5 @@
 {
-  "name": "fugu-poc",
+  "name": "@thinkyou0714/fugu",
   "version": "0.1.0",
   "description": "Zero-dependency TypeScript client + CLI for the Sakana Fugu OpenAI-compatible API (Responses + Chat Completions).",
   "type": "module",

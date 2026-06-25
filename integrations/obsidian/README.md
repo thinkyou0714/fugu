@@ -60,7 +60,7 @@ Requires **Node >= 22.9** (runs the `.ts` directly via native type-stripping).
 
 The orchestration (`src/command.ts`, `runFuguOnNote`) is **pure** — it depends only on a
 `NoteStore` and a `Responder`, so it is unit-tested from the core suite
-(`fugu-poc/test/obsidian.test.ts`) with a mocked Local REST API and a mocked Fugu.
+(`test/obsidian.test.ts`) with a mocked Local REST API and a mocked Fugu.
 `src/obsidian-api.ts` is the thin fetch wrapper (errors are redacted at the boundary — the
 API key never reaches a message or log; requests time out after 30s, configurable via
 `ObsidianClientOptions.timeoutMs`); `src/bin.ts` wires env + args to a real

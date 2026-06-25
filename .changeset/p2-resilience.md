@@ -1,5 +1,5 @@
 ---
-"fugu-poc": minor
+"@thinkyou0714/fugu": minor
 ---
 
 P2 resilience & cost control: automatic retries (exponential backoff + full jitter,
