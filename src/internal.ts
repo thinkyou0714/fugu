@@ -4,8 +4,13 @@
  * Zero-dependency and erasable (plain functions only).
  */
 
-/** Safe property read: returns `obj[key]` when `obj` is a non-null object, else undefined. */
+/**
+ * Safe property read: returns `obj[key]` when `obj` is a non-null object, else undefined.
+ * Prototype-chain keys (`__proto__` / `constructor` / `prototype`) are refused so a hostile
+ * API payload can never make a parser read a built-in instead of its own data.
+ */
 export function getProp(obj: unknown, key: string): unknown {
+  if (key === "__proto__" || key === "constructor" || key === "prototype") return undefined;
   return obj && typeof obj === "object" ? (obj as Record<string, unknown>)[key] : undefined;
 }
 
