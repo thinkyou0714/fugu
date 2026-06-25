@@ -217,6 +217,9 @@ export class FuguClient {
     opts: GenerateOptions,
     kind: "responses" | "chat",
   ): Record<string, unknown> {
+    // NOTE: the field append order below IS the request body's key order, which feeds the
+    // request cache key (cacheKeyFor hashes the body). Keep it stable — reordering silently
+    // busts cache compatibility. test/body-order.test.ts locks this contract.
     const body: Record<string, unknown> = { ...(opts.params ?? {}), ...payload };
     if (kind === "responses" && opts.instructions) body.instructions = opts.instructions;
     if (opts.reasoningEffort) body.reasoning = { effort: opts.reasoningEffort };
