@@ -4,13 +4,11 @@
  * (Web Streams + TextDecoderStream, built in on Node >= 22).
  */
 
+import { getProp } from "./internal.ts";
+
 export interface SSEMessage {
   event?: string;
   data: string;
-}
-
-function getProp(obj: unknown, key: string): unknown {
-  return obj && typeof obj === "object" ? (obj as Record<string, unknown>)[key] : undefined;
 }
 
 /** Parse an SSE byte stream into messages (blank-line-separated, `data:` lines joined by \n). */

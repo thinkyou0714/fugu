@@ -8,8 +8,9 @@
 import type { FuguResult } from "./types.ts";
 import type { GenerateOptions } from "./fugu-client.ts";
 import type { Responder } from "./cascade.ts";
-import { parseScore01 } from "./cascade.ts";
+import { scoreAnswer } from "./cascade.ts";
 import { WorkPool } from "./pool.ts";
+import { errorMessage } from "./internal.ts";
 
 export interface EvalCase {
   id: string;
@@ -100,8 +101,7 @@ export function llmGrader(judge: Responder, opts: LlmGraderOptions = {}): Grader
       (evalCase.reference ? " given the REFERENCE ANSWER" : "") +
       ", from 0.0 (wrong) to 1.0 (fully correct). Reply with ONLY the number.\n\n" +
       `QUESTION:\n${evalCase.input}${ref}\n\nANSWER:\n${result.text}`;
-    const judged = await judge.respond(prompt, { model: opts.model, reasoningEffort: opts.effort });
-    const score = parseScore01(judged.text);
+    const score = await scoreAnswer(judge, prompt, { model: opts.model, effort: opts.effort });
     return { pass: score >= threshold, score, reason: `llm-grader:${score.toFixed(2)}` };
   };
 }
@@ -148,7 +148,7 @@ export async function runEval(client: Responder, cases: EvalCase[], opts: RunEva
         costUsd: 0,
         latencyMs: now() - start,
         text: "",
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage(err),
       };
     }
   });

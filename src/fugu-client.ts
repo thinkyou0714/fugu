@@ -44,6 +44,7 @@ import type { RequestCache } from "./cache.ts";
 import { mapToolsForResponses, mapToolsForChat, parseToolCalls } from "./tools.ts";
 import type { FuguTool, ToolChoice } from "./tools.ts";
 import { parseJsonLoose } from "./json.ts";
+import { errorMessage, requestIdFrom } from "./internal.ts";
 import { noopLogger } from "./observe.ts";
 import type { Logger, RequestEvent, ResponseEvent } from "./observe.ts";
 
@@ -295,7 +296,7 @@ export class FuguClient {
           try {
             output = await handler(safeParse(call.arguments));
           } catch (err) {
-            output = { error: err instanceof Error ? err.message : String(err) };
+            output = { error: errorMessage(err) };
           }
         }
         conversation.push({
@@ -345,7 +346,7 @@ export class FuguClient {
       try {
         parsed = parseJsonLoose(result.text);
       } catch (err) {
-        lastError = `output was not valid JSON (${err instanceof Error ? err.message : String(err)})`;
+        lastError = `output was not valid JSON (${errorMessage(err)})`;
         currentInput = `${input}\n\nYour previous reply was invalid: ${lastError}. Return ONLY corrected JSON.`;
         continue;
       }
@@ -353,7 +354,7 @@ export class FuguClient {
         const data = opts.validate ? opts.validate(parsed) : (parsed as T);
         return { data, result };
       } catch (err) {
-        lastError = `validation failed (${err instanceof Error ? err.message : String(err)})`;
+        lastError = `validation failed (${errorMessage(err)})`;
         currentInput = `${input}\n\nYour previous reply failed validation: ${lastError}. Return ONLY corrected JSON.`;
       }
     }
@@ -474,7 +475,7 @@ export class FuguClient {
     if (name === "TimeoutError" || name === "AbortError") {
       return new FuguTimeoutError(`Request to ${path} timed out after ${timeoutMs}ms.`, { cause: err });
     }
-    const reason = err instanceof Error ? err.message : String(err);
+    const reason = errorMessage(err);
     return new FuguConnectionError(`Request to ${path} failed: ${reason}`, { cause: err });
   }
 
@@ -517,7 +518,7 @@ export class FuguClient {
       timeoutMs,
       opts.signal,
     );
-    const requestId = res.headers.get("x-request-id") ?? res.headers.get("x-requestid") ?? undefined;
+    const requestId = requestIdFrom(res.headers);
     return { res, requestId, timeoutMs };
   }
 

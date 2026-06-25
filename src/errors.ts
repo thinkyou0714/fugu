@@ -8,6 +8,7 @@
  */
 
 import { redactString } from "./redact.ts";
+import { getProp, requestIdFrom } from "./internal.ts";
 
 export type FuguErrorCode =
   | "config"
@@ -150,10 +151,6 @@ export class FuguValidationError extends FuguError {
   }
 }
 
-function getProp(obj: unknown, key: string): unknown {
-  return obj && typeof obj === "object" ? (obj as Record<string, unknown>)[key] : undefined;
-}
-
 /**
  * Parse an API error envelope into whitelisted, redacted, length-capped fields.
  * The raw body is never retained.
@@ -196,7 +193,7 @@ export function parseRetryAfter(value: string | null | undefined): number | unde
 /** Map an HTTP error response to the right typed error (never storing the raw body). */
 export function errorFromResponse(status: number, body: string, headers: Headers): FuguError {
   const apiError = parseApiError(body);
-  const requestId = headers.get("x-request-id") ?? headers.get("x-requestid") ?? undefined;
+  const requestId = requestIdFrom(headers);
   const retryAfterMs = parseRetryAfter(headers.get("retry-after"));
   const detail = apiError?.message ? `: ${apiError.message}` : "";
   const message = `Fugu API error ${status}${detail}`;

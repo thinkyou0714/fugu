@@ -12,6 +12,7 @@
 
 import http from "node:http";
 import { randomUUID } from "node:crypto";
+import { errorMessage, toError } from "./internal.ts";
 import type { GenerateOptions, ChatMessage, FuguStreamEvent } from "./fugu-client.ts";
 import type { FuguResult, FuguUsage } from "./types.ts";
 
@@ -35,7 +36,7 @@ export function createProxyServer(options: ProxyOptions): http.Server {
   const server = http.createServer((req, res) => {
     handle(req, res, options, models).catch((err) => {
       if (!res.headersSent) {
-        sendJson(res, 500, { error: { message: errMessage(err), type: "proxy_error" } });
+        sendJson(res, 500, { error: { message: errorMessage(err), type: "proxy_error" } });
       } else {
         res.end();
       }
@@ -102,7 +103,7 @@ async function handleChat(
       res.write("data: [DONE]\n\n"); // success terminator only
     } catch (err) {
       // Surface a real error frame and do NOT send [DONE] (which would look like a clean end).
-      writeSSE(res, { error: { message: errMessage(err), type: "proxy_error" } });
+      writeSSE(res, { error: { message: errorMessage(err), type: "proxy_error" } });
     } finally {
       res.end();
     }
@@ -147,7 +148,7 @@ async function handleResponses(
       }
       res.write("data: [DONE]\n\n");
     } catch (err) {
-      writeSSE(res, { error: { message: errMessage(err), type: "proxy_error" } });
+      writeSSE(res, { error: { message: errorMessage(err), type: "proxy_error" } });
     } finally {
       res.end();
     }
@@ -215,10 +216,10 @@ function readJson(req: http.IncomingMessage): Promise<Record<string, unknown>> {
       try {
         resolve(data ? (JSON.parse(data) as Record<string, unknown>) : {});
       } catch (err) {
-        reject(err instanceof Error ? err : new Error(String(err)));
+        reject(toError(err));
       }
     });
-    req.on("error", (err) => fail(err instanceof Error ? err : new Error(String(err))));
+    req.on("error", (err) => fail(toError(err)));
   });
 }
 
@@ -238,8 +239,4 @@ function startSSE(res: http.ServerResponse): void {
 
 function writeSSE(res: http.ServerResponse, obj: unknown): void {
   res.write(`data: ${JSON.stringify(obj)}\n\n`);
-}
-
-function errMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
