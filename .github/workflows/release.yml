@@ -1,9 +1,15 @@
 # Release via Changesets + npm Trusted Publishing (OIDC).
-# Template: active once this folder is its own repo.
 #
 # Trusted Publishing means NO long-lived NPM_TOKEN: configure the package's
 # trusted publisher on npmjs.com to point at this workflow, use npm >= 11.5.1,
 # and provenance attestations are generated automatically.
+#
+# PR creation: Changesets opens a "Version Packages" PR. The default GITHUB_TOKEN
+# cannot create PRs while "Allow GitHub Actions to create and approve pull requests"
+# is OFF (our secure default). Instead we use a **fine-grained PAT** stored as the
+# repo secret `CHANGESETS_TOKEN` (permissions: Contents read/write + Pull requests
+# read/write on this repo). This keeps GITHUB_TOKEN locked down. Until that secret
+# exists, this workflow fails at the PR-create step — that is expected.
 #
 # NOTE: SHA-pin action refs before going live (Renovate handles it).
 name: Release
@@ -26,6 +32,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # PAT so the Changesets "Version Packages" PR is created without enabling
+          # "Allow GitHub Actions to create and approve pull requests".
+          token: ${{ secrets.CHANGESETS_TOKEN }}
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -38,4 +48,4 @@ jobs:
           version: npm run release:version
           publish: npm run release:publish
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.CHANGESETS_TOKEN }}
