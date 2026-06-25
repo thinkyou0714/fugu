@@ -151,6 +151,11 @@ export class FuguValidationError extends FuguError {
   }
 }
 
+/** Slice to `max` chars, appending an ellipsis only when truncation actually occurred. */
+function clip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
 /**
  * Parse an API error envelope into whitelisted, redacted, length-capped fields.
  * The raw body is never retained.
@@ -161,20 +166,20 @@ export function parseApiError(body: string): ParsedApiError | undefined {
   try {
     parsed = JSON.parse(body);
   } catch {
-    return { message: redactString(body.slice(0, 200)) };
+    return { message: redactString(clip(body, 200)) };
   }
   const pick = (o: unknown): ParsedApiError => {
     const result: ParsedApiError = {};
     const message = getProp(o, "message");
     const type = getProp(o, "type");
     const code = getProp(o, "code");
-    if (typeof message === "string") result.message = redactString(message.slice(0, 512));
+    if (typeof message === "string") result.message = redactString(clip(message, 512));
     if (typeof type === "string") result.type = type;
     if (typeof code === "string") result.code = code;
     return result;
   };
   const errObj = getProp(parsed, "error");
-  if (typeof errObj === "string") return { message: redactString(errObj.slice(0, 512)) };
+  if (typeof errObj === "string") return { message: redactString(clip(errObj, 512)) };
   if (errObj && typeof errObj === "object") return pick(errObj);
   const top = pick(parsed);
   return Object.keys(top).length > 0 ? top : undefined;
