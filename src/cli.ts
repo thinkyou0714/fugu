@@ -6,8 +6,9 @@
  *   node --env-file-if-exists=.env --experimental-strip-types src/cli.ts "your prompt"
  */
 
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
 import { loadConfig } from "./config.ts";
 import type { ReasoningEffort } from "./config.ts";
 import { FuguClient, FuguError } from "./fugu-client.ts";
@@ -21,16 +22,27 @@ export interface CliArgs {
   model?: string;
   baseUrl?: string;
   effort?: ReasoningEffort;
+  instructions?: string;
   chat: boolean;
   json: boolean;
   usage: boolean;
+  stream: boolean;
+  version: boolean;
   help: boolean;
   /** Set when an option value was invalid. */
   error?: string;
 }
 
 export function parseArgs(argv: string[]): CliArgs {
-  const args: CliArgs = { prompt: "", chat: false, json: false, usage: false, help: false };
+  const args: CliArgs = {
+    prompt: "",
+    chat: false,
+    json: false,
+    usage: false,
+    stream: false,
+    version: false,
+    help: false,
+  };
   const positionals: string[] = [];
   const setEffort = (value: string | undefined) => {
     if (value && EFFORTS.has(value as ReasoningEffort)) args.effort = value as ReasoningEffort;
@@ -39,18 +51,25 @@ export function parseArgs(argv: string[]): CliArgs {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "-h" || a === "--help") args.help = true;
+    else if (a === "--version" || a === "-V") args.version = true;
     else if (a === "--chat") args.chat = true;
     else if (a === "--json") args.json = true;
     else if (a === "--usage") args.usage = true;
+    else if (a === "--stream") args.stream = true;
     else if (a === "--model") args.model = argv[++i];
     else if (a === "--base-url") args.baseUrl = argv[++i];
     else if (a === "--effort") setEffort(argv[++i]);
+    else if (a === "--instructions") args.instructions = argv[++i];
     else if (a.startsWith("--model=")) args.model = a.slice("--model=".length);
     else if (a.startsWith("--base-url=")) args.baseUrl = a.slice("--base-url=".length);
     else if (a.startsWith("--effort=")) setEffort(a.slice("--effort=".length));
+    else if (a.startsWith("--instructions=")) args.instructions = a.slice("--instructions=".length);
     else positionals.push(a);
   }
   args.prompt = positionals.join(" ").trim();
+  // Streaming emits incremental text; a single redacted JSON blob is a buffered-only view.
+  if (args.stream && args.json)
+    args.error = "--stream cannot be combined with --json (streaming is text-only).";
   return args;
 }
 
@@ -63,10 +82,13 @@ Usage:
 Options:
   --model <id>      fugu (fast) or fugu-ultra (max quality). Default: fugu-ultra
   --effort <level>  reasoning effort: high | xhigh | max (also scales the timeout)
+  --instructions <s>  System/developer guidance (Responses API; ignored with --chat)
   --chat            Use the Chat Completions API instead of the Responses API
+  --stream          Stream the answer incrementally (text only; not with --json)
   --base-url <url>  Override the API base URL (default https://api.sakana.ai/v1)
   --json            Print the raw JSON response
   --usage           Print token usage + estimated cost to stderr
+  -V, --version     Print the CLI version
   -h, --help        Show this help
 
 Environment (see .env.example):
@@ -80,6 +102,36 @@ export function renderResult(result: FuguResult, json: boolean): string {
   return json ? JSON.stringify(redact(result.raw), null, 2) : result.text;
 }
 
+/** Emit the incomplete warning + (optional) usage/cost line to stderr — shared by all paths. */
+function emitMeta(result: FuguResult, usage: boolean): void {
+  if (result.status === "incomplete") {
+    process.stderr.write(`warning: response incomplete (${result.incompleteReason ?? "unknown"})\n`);
+  }
+  if (usage) {
+    const u = result.usage;
+    const cost = result.costUsd !== undefined ? `$${result.costUsd.toFixed(6)}` : "n/a";
+    process.stderr.write(
+      `usage: in=${u.inputTokens ?? "?"} out=${u.outputTokens ?? "?"} ` +
+        `orch_in=${u.orchestrationInputTokens ?? 0} orch_out=${u.orchestrationOutputTokens ?? 0} ` +
+        `cost≈${cost} (model=${result.model})\n`,
+    );
+  }
+}
+
+/** Read the package version from package.json (works from both src/ and dist/). */
+export function readVersion(): string {
+  try {
+    const pkg = JSON.parse(
+      readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8"),
+    ) as {
+      version?: string;
+    };
+    return typeof pkg.version === "string" ? pkg.version : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
@@ -90,6 +142,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   const args = parseArgs(argv);
   if (args.help) {
     process.stdout.write(HELP);
+    return 0;
+  }
+  if (args.version) {
+    process.stdout.write(`${readVersion()}\n`);
     return 0;
   }
   if (args.error) {
@@ -121,24 +177,27 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   const client = new FuguClient(config);
   try {
     const messages: ChatMessage[] = [{ role: "user", content: prompt }];
+
+    if (args.stream) {
+      const events = args.chat
+        ? client.chatStream(messages, { reasoningEffort: args.effort })
+        : client.respondStream(prompt, { reasoningEffort: args.effort, instructions: args.instructions });
+      let streamed: FuguResult | undefined;
+      for await (const ev of events) {
+        if (ev.type === "delta") process.stdout.write(ev.textDelta ?? "");
+        else streamed = ev.result;
+      }
+      process.stdout.write("\n");
+      if (streamed) emitMeta(streamed, args.usage);
+      return 0;
+    }
+
     const result = args.chat
       ? await client.chat(messages, { reasoningEffort: args.effort })
-      : await client.respond(prompt, { reasoningEffort: args.effort });
+      : await client.respond(prompt, { reasoningEffort: args.effort, instructions: args.instructions });
 
     process.stdout.write(`${renderResult(result, args.json)}\n`);
-
-    if (result.status === "incomplete") {
-      process.stderr.write(`warning: response incomplete (${result.incompleteReason ?? "unknown"})\n`);
-    }
-    if (args.usage) {
-      const u = result.usage;
-      const cost = result.costUsd !== undefined ? `$${result.costUsd.toFixed(6)}` : "n/a";
-      process.stderr.write(
-        `usage: in=${u.inputTokens ?? "?"} out=${u.outputTokens ?? "?"} ` +
-          `orch_in=${u.orchestrationInputTokens ?? 0} orch_out=${u.orchestrationOutputTokens ?? 0} ` +
-          `cost≈${cost} (model=${result.model})\n`,
-      );
-    }
+    emitMeta(result, args.usage);
     return 0;
   } catch (err) {
     if (err instanceof FuguError) {
