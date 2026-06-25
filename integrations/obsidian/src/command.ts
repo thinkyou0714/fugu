@@ -26,6 +26,8 @@ export interface FuguNoteOptions {
   effort?: ReasoningEffort;
   /** Heading the answer is appended under (default `## 🐡 Fugu`). */
   heading?: string;
+  /** Preview only: return Fugu's answer WITHOUT appending it to the note (no write). */
+  dryRun?: boolean;
 }
 
 const DEFAULT_INSTRUCTION =
@@ -52,6 +54,9 @@ export async function runFuguOnNote(
   const prompt = buildPrompt(note, opts.question);
   const result = await deps.fugu.respond(prompt, { model: opts.model, reasoningEffort: opts.effort });
   const answer = result.text?.trim() ? result.text : "(Fugu returned an empty response.)";
+
+  // Preview mode: hand back the answer without ever writing to the vault.
+  if (opts.dryRun) return answer;
 
   const heading = opts.heading ?? DEFAULT_HEADING;
   const block = `\n\n${heading}\n\n${answer}\n`;
