@@ -9,6 +9,10 @@ Fugu's frontier-model pool as a sub-agent (a "second opinion" / hard-reasoning e
 - `fugu_chat` — multi-turn chat (Chat Completions).
 - `fugu_list_models` — list model ids.
 
+Tool results return the answer as text plus a `_meta` block (`requestId`, `usage`, `costUsd`,
+`status`) so the caller can track spend and trace a request. Errors are returned as
+`isError` results with the message redacted (the API key never leaks into tool output).
+
 ## Run
 
 ```bash
