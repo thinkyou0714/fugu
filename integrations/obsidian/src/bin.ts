@@ -30,6 +30,7 @@ function parseArgs(argv: string[]): ParsedArgs {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--help" || arg === "-h") out.help = true;
+    else if (arg === "--dry-run") out.dryRun = true;
     else if (arg === "--path") {
       const value = argv[++i];
       if (value === undefined) throw new Error("--path requires a value");
@@ -53,7 +54,10 @@ const HELP = `fugu-obsidian — ask Fugu about your Obsidian note
 
 Usage:
   fugu-obsidian [question...] [--path <vault/path.md>] [--model fugu|fugu-ultra]
-                [--effort high|xhigh|max] [--heading "## ..."]
+                [--effort high|xhigh|max] [--heading "## ..."] [--dry-run]
+
+Flags:
+  --dry-run          print Fugu's answer but do NOT append it to the note
 
 Env:
   SAKANA_API_KEY     Fugu API key (required)
@@ -75,6 +79,7 @@ async function main(): Promise<void> {
   const fugu = new FuguClient(loadConfig());
   const answer = await runFuguOnNote({ notes, fugu }, args);
   process.stdout.write(`${answer}\n`);
+  if (args.dryRun) process.stderr.write("(dry run — note was not modified)\n");
 }
 
 const entry = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : "";

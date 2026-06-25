@@ -32,6 +32,9 @@ node integrations/obsidian/src/bin.ts "What's missing from this plan?"
 
 # target a specific note, pick the model/effort:
 node integrations/obsidian/src/bin.ts --path "Projects/Fugu.md" --model fugu-ultra --effort high
+
+# preview the answer without touching the note:
+node integrations/obsidian/src/bin.ts --dry-run "Summarise this note"
 ```
 
 Requires **Node >= 22.9** (runs the `.ts` directly via native type-stripping).
@@ -43,6 +46,7 @@ Requires **Node >= 22.9** (runs the `.ts` directly via native type-stripping).
 | `--model`   | `fugu` (fast) or `fugu-ultra` (max quality).                  |
 | `--effort`  | `high` / `xhigh` / `max`.                                     |
 | `--heading` | Heading the answer is filed under (default `## 🐡 Fugu`).      |
+| `--dry-run` | Print Fugu's answer but do **not** append it to the note.      |
 
 | Env                | Meaning                                              |
 |--------------------|------------------------------------------------------|

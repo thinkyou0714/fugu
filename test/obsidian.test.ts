@@ -108,6 +108,24 @@ test("an empty Fugu answer becomes a visible placeholder, not a blank append", a
   assert.match(obs.notes.active, /empty response/i);
 });
 
+test("dry run returns the answer but never writes to the note", async () => {
+  const obs = obsidianMock({ active: "original body" });
+  const fg = fuguMock("PREVIEW-ANSWER");
+
+  const answer = await runFuguOnNote(
+    { notes: obsidian(obs.fetchImpl), fugu: fugu(fg.fetchImpl) },
+    { question: "anything", dryRun: true },
+  );
+
+  assert.equal(answer, "PREVIEW-ANSWER");
+  // The note was read, but never appended to — only a GET, no POST.
+  assert.deepEqual(
+    obs.calls.map((c) => c.method),
+    ["GET"],
+  );
+  assert.equal(obs.notes.active, "original body", "the note must be byte-for-byte unchanged");
+});
+
 test("ObsidianClient redacts a secret echoed in an error body", async () => {
   const fakeSecret = ["sk", "live", "C0FFEE1234567890abcd"].join("-");
   const mock = (async () =>
