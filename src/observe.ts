@@ -23,6 +23,7 @@ export interface ResponseEvent {
   usage?: FuguUsage;
   costUsd?: number;
   requestId?: string;
+  /** Set when the request FAILED — the thrown error; `status` carries its code. */
   error?: FuguError;
 }
 

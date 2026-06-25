@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { FuguClient } from "../src/fugu-client.ts";
 import { MemoryCache } from "../src/cache.ts";
 import type { FuguResult } from "../src/types.ts";
+import type { ResponseEvent } from "../src/observe.ts";
 
 const SK = "sk-test-key-abcdef";
 
@@ -161,4 +162,15 @@ test("MemoryCache expires entries at the TTL boundary (<=)", async (t) => {
   assert.ok(await cache.get("k")); // 999 < 1000 → still a hit
   t.mock.timers.tick(1); // now == 1000 == expiresAt → expired (<=)
   assert.equal(await cache.get("k"), undefined);
+});
+
+test("onResponse fires once on failure with the error populated (buffered paths)", async () => {
+  const { fn } = queueFetch([() => jsonResponse({ error: { message: "nope" } }, { status: 401 })]);
+  const events: ResponseEvent[] = [];
+  const client = newClient(fn, { maxRetries: 0, onResponse: (e: ResponseEvent) => events.push(e) });
+  await assert.rejects(() => client.respond("x"));
+  assert.equal(events.length, 1);
+  assert.equal(events[0].status, "auth"); // status carries the error code
+  assert.equal(events[0].error?.code, "auth");
+  assert.equal(events[0].usage, undefined);
 });

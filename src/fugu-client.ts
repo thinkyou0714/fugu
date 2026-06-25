@@ -73,7 +73,11 @@ export interface FuguClientOptions extends FuguConfig {
   cache?: RequestCache;
   /** Called before each network attempt (incl. retries) — metadata only, no content. */
   onRequest?: (event: RequestEvent) => void;
-  /** Called after a result is built — metadata only (model, status, tokens, cost). */
+  /**
+   * Called after each buffered request (`respond`/`chat`/`runTools`) settles — on success
+   * with status/usage/cost, and on failure with `error` set and `status` = the error code.
+   * Metadata only; streaming methods don't emit this.
+   */
   onResponse?: (event: ResponseEvent) => void;
   /** Structured logger (defaults to a no-op). Wire pino/console/OpenTelemetry here. */
   logger?: Logger;
@@ -250,8 +254,14 @@ export class FuguClient {
         return cached;
       }
     }
-    const { json, requestId } = await this.request(endpoint, body, model, opts);
-    const result = this.buildResult(json, model, extractText(json), requestId, opts);
+    let result: FuguResult;
+    try {
+      const { json, requestId } = await this.request(endpoint, body, model, opts);
+      result = this.buildResult(json, model, extractText(json), requestId, opts);
+    } catch (err) {
+      if (err instanceof FuguError) this.emitError(endpoint, model, err, Date.now() - start);
+      throw err;
+    }
     if (cacheKey) await this.cache?.set(cacheKey, result);
     this.emitResponse(endpoint, model, result, Date.now() - start);
     return result;
@@ -299,8 +309,15 @@ export class FuguClient {
       }
       if (opts.reasoningEffort) body.reasoning = { effort: opts.reasoningEffort };
       this.applyOutputCap(body, "max_completion_tokens", opts);
-      const { json, requestId } = await this.request("/chat/completions", body, model, opts);
-      result = this.buildResult(json, model, extractChatText(json), requestId, opts);
+      let json: unknown;
+      try {
+        const res = await this.request("/chat/completions", body, model, opts);
+        json = res.json;
+        result = this.buildResult(json, model, extractChatText(json), res.requestId, opts);
+      } catch (err) {
+        if (err instanceof FuguError) this.emitError("/chat/completions", model, err, Date.now() - start);
+        throw err;
+      }
       this.emitResponse("/chat/completions", model, result, Date.now() - start);
 
       const calls = result.toolCalls ?? [];
@@ -484,6 +501,12 @@ export class FuguClient {
       costUsd: result.costUsd,
       requestId: result.requestId,
     });
+  }
+
+  /** Emit the response hook for a FAILED buffered request — `error` set, `status` = its code. */
+  private emitError(path: string, model: string, error: FuguError, durationMs: number): void {
+    if (!this.onResponse) return;
+    this.onResponse({ path, model, status: error.code, durationMs, requestId: error.requestId, error });
   }
 
   private headers(idempotencyKey?: string): Record<string, string> {
