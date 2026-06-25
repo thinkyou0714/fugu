@@ -6,6 +6,8 @@
  * returning "" — and exposes Fugu's hidden, billed orchestration token counts.
  */
 
+import { getProp } from "./internal.ts";
+
 export type ResponseStatus = "completed" | "incomplete" | "unknown";
 
 export interface FuguUsage {
@@ -57,9 +59,6 @@ export interface FuguResult {
   cached?: boolean;
 }
 
-function getProp(obj: unknown, key: string): unknown {
-  return obj && typeof obj === "object" ? (obj as Record<string, unknown>)[key] : undefined;
-}
 function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }

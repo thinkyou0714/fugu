@@ -4,6 +4,7 @@
  */
 
 import type { FuguClient, ChatMessage, ReasoningEffort, FuguResult } from "../../../src/index.ts";
+import { redactString } from "../../../src/index.ts";
 
 /**
  * A structural subset of the MCP SDK's `CallToolResult`. The `[key: string]: unknown`
@@ -40,10 +41,20 @@ function fromResult(result: FuguResult): ToolResult {
     result.status === "incomplete"
       ? `[Fugu response incomplete: ${result.incompleteReason ?? result.finishReason ?? "unknown reason"}]`
       : "";
-  if (!result.text) {
-    return fail(note || "Fugu returned an empty response.");
-  }
-  return note ? ok(`${result.text}\n\n${note}`) : ok(result.text);
+  let base: ToolResult;
+  if (!result.text) base = fail(note || "Fugu returned an empty response.");
+  else base = ok(note ? `${result.text}\n\n${note}` : result.text);
+  // Surface trace id + usage/cost so the calling agent can log spend even when the answer
+  // was empty or truncated (exactly when cost visibility matters most).
+  base._meta = {
+    requestId: result.requestId,
+    id: result.id,
+    usage: result.usage,
+    costUsd: result.costUsd,
+    status: result.status,
+    incompleteReason: result.incompleteReason,
+  };
+  return base;
 }
 
 export interface RespondArgs {
@@ -57,7 +68,7 @@ export async function fuguRespond(client: FuguClient, args: RespondArgs): Promis
     const result = await client.respond(args.input, { model: args.model, reasoningEffort: args.effort });
     return fromResult(result);
   } catch (err) {
-    return fail(`Fugu error: ${err instanceof Error ? err.message : String(err)}`);
+    return fail(`Fugu error: ${redactString(err instanceof Error ? err.message : String(err))}`);
   }
 }
 
@@ -71,7 +82,7 @@ export async function fuguChat(client: FuguClient, args: ChatArgs): Promise<Tool
     const result = await client.chat(args.messages, { model: args.model });
     return fromResult(result);
   } catch (err) {
-    return fail(`Fugu error: ${err instanceof Error ? err.message : String(err)}`);
+    return fail(`Fugu error: ${redactString(err instanceof Error ? err.message : String(err))}`);
   }
 }
 

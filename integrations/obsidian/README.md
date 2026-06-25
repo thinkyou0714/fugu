@@ -49,6 +49,8 @@ Requires **Node >= 22.9** (runs the `.ts` directly via native type-stripping).
 | `SAKANA_API_KEY`   | Fugu API key (required).                              |
 | `OBSIDIAN_API_KEY` | Local REST API key (required).                       |
 | `OBSIDIAN_API_URL` | Plugin base URL (default `https://127.0.0.1:27124`). |
+| `SAKANA_BASE_URL`  | Fugu API base URL (optional, default `https://api.sakana.ai/v1`). |
+| `FUGU_MODEL`       | Default model when `--model` is omitted (optional, default `fugu-ultra`). |
 
 ## Design
 
@@ -56,5 +58,6 @@ The orchestration (`src/command.ts`, `runFuguOnNote`) is **pure** — it depends
 `NoteStore` and a `Responder`, so it is unit-tested from the core suite
 (`fugu-poc/test/obsidian.test.ts`) with a mocked Local REST API and a mocked Fugu.
 `src/obsidian-api.ts` is the thin fetch wrapper (errors are redacted at the boundary — the
-API key never reaches a message or log); `src/bin.ts` wires env + args to a real
+API key never reaches a message or log; requests time out after 30s, configurable via
+`ObsidianClientOptions.timeoutMs`); `src/bin.ts` wires env + args to a real
 `ObsidianClient` + `FuguClient`. No runtime dependencies.

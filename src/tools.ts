@@ -8,6 +8,7 @@
  */
 
 import type { FuguToolCall } from "./types.ts";
+import { getProp } from "./internal.ts";
 
 export type FuguTool =
   | {
@@ -60,9 +61,6 @@ export function mapToolsForChat(tools: FuguTool[]): unknown[] {
   );
 }
 
-function getProp(obj: unknown, key: string): unknown {
-  return obj && typeof obj === "object" ? (obj as Record<string, unknown>)[key] : undefined;
-}
 function str(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }

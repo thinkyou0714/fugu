@@ -37,6 +37,10 @@ mkdir -p ~/.n8n/custom && ln -s "$PWD" ~/.n8n/custom/n8n-nodes-fugu
 n8n start            # the "Fugu" node + "Fugu API" credential now appear
 ```
 
+> On Windows, replace `ln -s` with
+> `mklink /D %USERPROFILE%\.n8n\custom\n8n-nodes-fugu "%CD%"` (Developer Mode or an
+> elevated shell), or just copy the folder into `~/.n8n/custom/`.
+
 To publish to the community registry, drop `"private": true`, fill in `author`/`repository`,
 run `npm run build`, and `npm publish` (the `n8n` field in `package.json` registers the node
 and credential).

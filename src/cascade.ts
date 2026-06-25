@@ -106,6 +106,19 @@ export interface LlmJudgeOptions {
   threshold?: number;
 }
 
+/**
+ * Ask a judge model to emit a bare 0..1 score for `prompt`, and parse it. Shared by the
+ * confidence judge here and the eval grader; not part of the public `index.ts` barrel.
+ */
+export async function scoreAnswer(
+  judge: Responder,
+  prompt: string,
+  opts: { model?: string; effort?: ReasoningEffort } = {},
+): Promise<number> {
+  const judged = await judge.respond(prompt, { model: opts.model, reasoningEffort: opts.effort });
+  return parseScore01(judged.text);
+}
+
 /** An LLM-as-judge: asks a model to rate the answer 0..1 and accepts at/above the threshold. */
 export function llmJudge(judge: Responder, opts: LlmJudgeOptions = {}): Judge {
   const threshold = opts.threshold ?? 0.7;
@@ -114,8 +127,7 @@ export function llmJudge(judge: Responder, opts: LlmJudgeOptions = {}): Judge {
       "Rate how confident you are that the ANSWER correctly and completely addresses the " +
       "QUESTION, from 0.0 (wrong/uncertain) to 1.0 (clearly correct). Reply with ONLY the number.\n\n" +
       `QUESTION:\n${input}\n\nANSWER:\n${result.text}`;
-    const judged = await judge.respond(prompt, { model: opts.model, reasoningEffort: opts.effort });
-    const score = parseScore01(judged.text);
+    const score = await scoreAnswer(judge, prompt, { model: opts.model, effort: opts.effort });
     return { confident: score >= threshold, score, reason: `llm-judge:${score.toFixed(2)}` };
   };
 }

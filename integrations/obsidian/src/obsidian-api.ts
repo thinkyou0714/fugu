@@ -18,6 +18,8 @@ export interface ObsidianClientOptions {
   apiKey: string;
   /** Base URL of the plugin (default `https://127.0.0.1:27124`). */
   baseUrl?: string;
+  /** Per-request timeout in ms (default 30000) — aborts a hung Local REST API call. */
+  timeoutMs?: number;
   /** Injectable fetch (defaults to the global) — set in tests. */
   fetch?: typeof fetch;
 }
@@ -50,6 +52,7 @@ function encodeVaultPath(path: string): string {
 export class ObsidianClient implements NoteStore {
   private readonly apiKey: string;
   private readonly baseUrl: string;
+  private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
 
   constructor(opts: ObsidianClientOptions) {
@@ -58,6 +61,7 @@ export class ObsidianClient implements NoteStore {
     }
     this.apiKey = opts.apiKey;
     this.baseUrl = (opts.baseUrl ?? DEFAULT_OBSIDIAN_URL).replace(/\/+$/, "");
+    this.timeoutMs = opts.timeoutMs ?? 30_000;
     this.fetchImpl = opts.fetch ?? fetch;
   }
 
@@ -98,8 +102,16 @@ export class ObsidianClient implements NoteStore {
 
     let res: Response;
     try {
-      res = await this.fetchImpl(`${this.baseUrl}${route}`, { method, headers, body });
+      res = await this.fetchImpl(`${this.baseUrl}${route}`, {
+        method,
+        headers,
+        body,
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
     } catch (err) {
+      if (err instanceof Error && err.name === "TimeoutError") {
+        throw new Error(`Obsidian request timed out after ${this.timeoutMs}ms (${method} ${route}).`);
+      }
       // Network/TLS failure — redact in case the message echoes the URL/headers.
       const detail = err instanceof Error ? err.message : String(err);
       throw new Error(`Obsidian request failed (${method} ${route}): ${redactString(detail)}`);

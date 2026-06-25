@@ -44,6 +44,7 @@ import type { RequestCache } from "./cache.ts";
 import { mapToolsForResponses, mapToolsForChat, parseToolCalls } from "./tools.ts";
 import type { FuguTool, ToolChoice } from "./tools.ts";
 import { parseJsonLoose } from "./json.ts";
+import { errorMessage, requestIdFrom } from "./internal.ts";
 import { noopLogger } from "./observe.ts";
 import type { Logger, RequestEvent, ResponseEvent } from "./observe.ts";
 
@@ -72,7 +73,11 @@ export interface FuguClientOptions extends FuguConfig {
   cache?: RequestCache;
   /** Called before each network attempt (incl. retries) — metadata only, no content. */
   onRequest?: (event: RequestEvent) => void;
-  /** Called after a result is built — metadata only (model, status, tokens, cost). */
+  /**
+   * Called after each buffered request (`respond`/`chat`/`runTools`) settles — on success
+   * with status/usage/cost, and on failure with `error` set and `status` = the error code.
+   * Metadata only; streaming methods don't emit this.
+   */
   onResponse?: (event: ResponseEvent) => void;
   /** Structured logger (defaults to a no-op). Wire pino/console/OpenTelemetry here. */
   logger?: Logger;
@@ -167,36 +172,98 @@ export class FuguClient {
     this.onResponse = options.onResponse;
     this.logger = options.logger ?? noopLogger;
     if (typeof this.fetchImpl !== "function") {
-      throw new FuguConfigError("No fetch implementation available. Use Node >= 18 or pass options.fetch.");
+      throw new FuguConfigError("No fetch implementation available. Use Node >= 22.9 or pass options.fetch.");
     }
   }
 
-  /** Responses API (recommended). `input` is the user prompt. */
+  /**
+   * Generate via the Responses API (recommended for generation).
+   *
+   * @param input The user prompt.
+   * @param opts Per-call options — model, reasoningEffort, tools, instructions, caching, etc.
+   * @returns Typed result: text, usage, estimated cost, status, requestId, and any toolCalls.
+   * @throws {FuguError} Subclasses for config/auth/rate-limit/timeout/connection/parse failures.
+   */
   async respond(input: string, opts: GenerateOptions = {}): Promise<FuguResult> {
     this.guardInput(input.length);
     const model = opts.model ?? this.model;
-    const start = Date.now();
-    const body: Record<string, unknown> = { ...(opts.params ?? {}), model, input };
-    if (opts.instructions) body.instructions = opts.instructions;
+    const body = this.buildBody({ model, input }, opts, "responses");
+    return this.send("/responses", body, model, opts, extractResponsesText);
+  }
+
+  /**
+   * Generate via the Chat Completions API.
+   *
+   * @param messages The chat transcript (system / developer / user / assistant turns).
+   * @param opts Per-call options — model, reasoningEffort, tools, caching, etc.
+   * @returns Typed result (see {@link respond}).
+   * @throws {FuguError} Subclasses on request failure.
+   */
+  async chat(messages: ChatMessage[], opts: GenerateOptions = {}): Promise<FuguResult> {
+    this.guardInput(messages.reduce((n, m) => n + m.content.length, 0));
+    const model = opts.model ?? this.model;
+    const body = this.buildBody({ model, messages }, opts, "chat");
+    return this.send("/chat/completions", body, model, opts, extractChatText);
+  }
+
+  /**
+   * Build a non-streaming request body for the Responses ("responses") or Chat
+   * Completions ("chat") endpoint from the shared GenerateOptions. Endpoint-specific
+   * params (instructions / previous_response_id / store, tool mapping, output-token
+   * field) are gated on `kind` so the two public methods stay one-liners.
+   */
+  private buildBody(
+    payload: Record<string, unknown>,
+    opts: GenerateOptions,
+    kind: "responses" | "chat",
+  ): Record<string, unknown> {
+    const body: Record<string, unknown> = { ...(opts.params ?? {}), ...payload };
+    if (kind === "responses" && opts.instructions) body.instructions = opts.instructions;
     if (opts.reasoningEffort) body.reasoning = { effort: opts.reasoningEffort };
-    if (opts.tools) body.tools = mapToolsForResponses(opts.tools);
+    if (opts.tools) {
+      body.tools = kind === "responses" ? mapToolsForResponses(opts.tools) : mapToolsForChat(opts.tools);
+    }
     if (opts.toolChoice) body.tool_choice = opts.toolChoice;
-    if (opts.previousResponseId) body.previous_response_id = opts.previousResponseId;
-    if (opts.store !== undefined) body.store = opts.store;
-    this.applyOutputCap(body, "max_output_tokens", opts);
-    const cacheKey = this.cacheKey("/responses", body, opts);
+    if (kind === "responses") {
+      if (opts.previousResponseId) body.previous_response_id = opts.previousResponseId;
+      if (opts.store !== undefined) body.store = opts.store;
+    }
+    this.applyOutputCap(body, kind === "responses" ? "max_output_tokens" : "max_completion_tokens", opts);
+    return body;
+  }
+
+  /**
+   * Shared non-streaming request flow: serve from cache when possible, otherwise send
+   * the request, build the typed result, populate the cache, and emit the response event.
+   * `extractText` pulls the assistant text out of the endpoint's raw JSON shape.
+   */
+  private async send(
+    endpoint: string,
+    body: Record<string, unknown>,
+    model: string,
+    opts: GenerateOptions,
+    extractText: (json: unknown) => string,
+  ): Promise<FuguResult> {
+    const start = Date.now();
+    const cacheKey = this.cacheKey(endpoint, body, opts);
     if (cacheKey) {
       const hit = await this.cache?.get(cacheKey);
       if (hit) {
         const cached = { ...hit, cached: true };
-        this.emitResponse("/responses", model, cached, Date.now() - start);
+        this.emitResponse(endpoint, model, cached, Date.now() - start);
         return cached;
       }
     }
-    const { json, requestId } = await this.request("/responses", body, model, opts);
-    const result = this.buildResult(json, model, extractResponsesText(json), requestId, opts);
+    let result: FuguResult;
+    try {
+      const { json, requestId } = await this.request(endpoint, body, model, opts);
+      result = this.buildResult(json, model, extractText(json), requestId, opts);
+    } catch (err) {
+      if (err instanceof FuguError) this.emitError(endpoint, model, err, Date.now() - start);
+      throw err;
+    }
     if (cacheKey) await this.cache?.set(cacheKey, result);
-    this.emitResponse("/responses", model, result, Date.now() - start);
+    this.emitResponse(endpoint, model, result, Date.now() - start);
     return result;
   }
 
@@ -208,35 +275,14 @@ export class FuguClient {
     return cacheKeyFor(endpoint, body);
   }
 
-  /** Chat Completions API. */
-  async chat(messages: ChatMessage[], opts: GenerateOptions = {}): Promise<FuguResult> {
-    this.guardInput(messages.reduce((n, m) => n + m.content.length, 0));
-    const model = opts.model ?? this.model;
-    const start = Date.now();
-    const body: Record<string, unknown> = { ...(opts.params ?? {}), model, messages };
-    if (opts.reasoningEffort) body.reasoning = { effort: opts.reasoningEffort };
-    if (opts.tools) body.tools = mapToolsForChat(opts.tools);
-    if (opts.toolChoice) body.tool_choice = opts.toolChoice;
-    this.applyOutputCap(body, "max_completion_tokens", opts);
-    const cacheKey = this.cacheKey("/chat/completions", body, opts);
-    if (cacheKey) {
-      const hit = await this.cache?.get(cacheKey);
-      if (hit) {
-        const cached = { ...hit, cached: true };
-        this.emitResponse("/chat/completions", model, cached, Date.now() - start);
-        return cached;
-      }
-    }
-    const { json, requestId } = await this.request("/chat/completions", body, model, opts);
-    const result = this.buildResult(json, model, extractChatText(json), requestId, opts);
-    if (cacheKey) await this.cache?.set(cacheKey, result);
-    this.emitResponse("/chat/completions", model, result, Date.now() - start);
-    return result;
-  }
-
   /**
    * Agentic tool loop on Chat Completions: calls the model, runs any requested tools
    * via `handlers`, feeds the results back, and repeats up to `maxIterations` (default 5).
+   *
+   * @param messages Initial transcript; assistant + tool turns are appended as the loop runs.
+   * @param opts Generation options plus `handlers` (tool name → fn) and optional `maxIterations`.
+   * @returns The final result; if the iteration cap is reached it may still carry `toolCalls`.
+   * @throws {FuguError} Subclasses on request failure (handler errors are fed back to the model).
    */
   async runTools(
     messages: Array<ChatMessage | Record<string, unknown>>,
@@ -258,12 +304,20 @@ export class FuguClient {
       // Force the tool on the first turn only; relax "required" to "auto" afterwards so the
       // model can produce a final answer instead of being forced to call a tool every turn.
       if (opts.toolChoice) {
-        body.tool_choice = i === 0 || opts.toolChoice !== "required" ? opts.toolChoice : "auto";
+        const forcedFirstTurn = i === 0 || opts.toolChoice !== "required";
+        body.tool_choice = forcedFirstTurn ? opts.toolChoice : "auto";
       }
       if (opts.reasoningEffort) body.reasoning = { effort: opts.reasoningEffort };
       this.applyOutputCap(body, "max_completion_tokens", opts);
-      const { json, requestId } = await this.request("/chat/completions", body, model, opts);
-      result = this.buildResult(json, model, extractChatText(json), requestId, opts);
+      let json: unknown;
+      try {
+        const res = await this.request("/chat/completions", body, model, opts);
+        json = res.json;
+        result = this.buildResult(json, model, extractChatText(json), res.requestId, opts);
+      } catch (err) {
+        if (err instanceof FuguError) this.emitError("/chat/completions", model, err, Date.now() - start);
+        throw err;
+      }
       this.emitResponse("/chat/completions", model, result, Date.now() - start);
 
       const calls = result.toolCalls ?? [];
@@ -279,7 +333,7 @@ export class FuguClient {
           try {
             output = await handler(safeParse(call.arguments));
           } catch (err) {
-            output = { error: err instanceof Error ? err.message : String(err) };
+            output = { error: errorMessage(err) };
           }
         }
         conversation.push({
@@ -329,7 +383,7 @@ export class FuguClient {
       try {
         parsed = parseJsonLoose(result.text);
       } catch (err) {
-        lastError = `output was not valid JSON (${err instanceof Error ? err.message : String(err)})`;
+        lastError = `output was not valid JSON (${errorMessage(err)})`;
         currentInput = `${input}\n\nYour previous reply was invalid: ${lastError}. Return ONLY corrected JSON.`;
         continue;
       }
@@ -337,7 +391,7 @@ export class FuguClient {
         const data = opts.validate ? opts.validate(parsed) : (parsed as T);
         return { data, result };
       } catch (err) {
-        lastError = `validation failed (${err instanceof Error ? err.message : String(err)})`;
+        lastError = `validation failed (${errorMessage(err)})`;
         currentInput = `${input}\n\nYour previous reply failed validation: ${lastError}. Return ONLY corrected JSON.`;
       }
     }
@@ -346,7 +400,14 @@ export class FuguClient {
     );
   }
 
-  /** Streaming Responses API. Yields text deltas then a terminal aggregated result. */
+  /**
+   * Stream via the Responses API: yields incremental `delta` events, then one terminal
+   * `done` event carrying the aggregated {@link FuguResult}.
+   *
+   * @param input The user prompt.
+   * @param opts Per-call options (model, reasoningEffort, …).
+   * @throws {FuguError} Subclasses if the stream cannot be opened or fails mid-flight.
+   */
   async *respondStream(input: string, opts: GenerateOptions = {}): AsyncGenerator<FuguStreamEvent> {
     this.guardInput(input.length);
     const model = opts.model ?? this.model;
@@ -357,7 +418,13 @@ export class FuguClient {
     yield* this.stream("/responses", body, model, "responses", opts);
   }
 
-  /** Streaming Chat Completions API. */
+  /**
+   * Stream via the Chat Completions API: yields `delta` events then a terminal `done` event.
+   *
+   * @param messages The chat transcript.
+   * @param opts Per-call options (model, reasoningEffort, …).
+   * @throws {FuguError} Subclasses if the stream cannot be opened or fails mid-flight.
+   */
   async *chatStream(messages: ChatMessage[], opts: GenerateOptions = {}): AsyncGenerator<FuguStreamEvent> {
     this.guardInput(messages.reduce((n, m) => n + m.content.length, 0));
     const model = opts.model ?? this.model;
@@ -436,6 +503,12 @@ export class FuguClient {
     });
   }
 
+  /** Emit the response hook for a FAILED buffered request — `error` set, `status` = its code. */
+  private emitError(path: string, model: string, error: FuguError, durationMs: number): void {
+    if (!this.onResponse) return;
+    this.onResponse({ path, model, status: error.code, durationMs, requestId: error.requestId, error });
+  }
+
   private headers(idempotencyKey?: string): Record<string, string> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -458,7 +531,7 @@ export class FuguClient {
     if (name === "TimeoutError" || name === "AbortError") {
       return new FuguTimeoutError(`Request to ${path} timed out after ${timeoutMs}ms.`, { cause: err });
     }
-    const reason = err instanceof Error ? err.message : String(err);
+    const reason = errorMessage(err);
     return new FuguConnectionError(`Request to ${path} failed: ${reason}`, { cause: err });
   }
 
@@ -480,15 +553,18 @@ export class FuguClient {
     }
   }
 
-  private async sendOnce(
+  /**
+   * Resolve the effective timeout, fire the request, and read the x-request-id header.
+   * Shared by the buffered (`sendOnce`) and streaming (`stream`) paths; the response body
+   * is left unconsumed for the caller to read or stream.
+   */
+  private async openRequest(
     path: string,
     body: unknown,
     model: string,
     opts: GenerateOptions,
-    idempotencyKey: string,
-    attempt: number,
-  ): Promise<RawResponse> {
-    this.onRequest?.({ path, model, attempt });
+    idempotencyKey?: string,
+  ): Promise<{ res: Response; requestId?: string; timeoutMs: number }> {
     const url = `${this.baseUrl}${path}`;
     const timeoutMs = opts.timeoutMs ?? this.timeoutOverrideMs ?? defaultTimeoutMs(model, opts.reasoningEffort);
     const res = await this.doFetch(
@@ -498,7 +574,20 @@ export class FuguClient {
       timeoutMs,
       opts.signal,
     );
-    const requestId = res.headers.get("x-request-id") ?? res.headers.get("x-requestid") ?? undefined;
+    const requestId = requestIdFrom(res.headers);
+    return { res, requestId, timeoutMs };
+  }
+
+  private async sendOnce(
+    path: string,
+    body: unknown,
+    model: string,
+    opts: GenerateOptions,
+    idempotencyKey: string,
+    attempt: number,
+  ): Promise<RawResponse> {
+    this.onRequest?.({ path, model, attempt });
+    const { res, requestId, timeoutMs } = await this.openRequest(path, body, model, opts, idempotencyKey);
     let rawText: string;
     try {
       rawText = await res.text();
@@ -548,16 +637,7 @@ export class FuguClient {
   ): AsyncGenerator<FuguStreamEvent> {
     this.requireApiKey();
     this.budget?.check();
-    const url = `${this.baseUrl}${path}`;
-    const timeoutMs = opts.timeoutMs ?? this.timeoutOverrideMs ?? defaultTimeoutMs(model, opts.reasoningEffort);
-    const res = await this.doFetch(
-      url,
-      { method: "POST", headers: this.headers(), body: JSON.stringify(body) },
-      path,
-      timeoutMs,
-      opts.signal,
-    );
-    const requestId = res.headers.get("x-request-id") ?? res.headers.get("x-requestid") ?? undefined;
+    const { res, requestId, timeoutMs } = await this.openRequest(path, body, model, opts);
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       throw errorFromResponse(res.status, text, res.headers);

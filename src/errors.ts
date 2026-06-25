@@ -8,6 +8,7 @@
  */
 
 import { redactString } from "./redact.ts";
+import { getProp, requestIdFrom } from "./internal.ts";
 
 export type FuguErrorCode =
   | "config"
@@ -150,8 +151,9 @@ export class FuguValidationError extends FuguError {
   }
 }
 
-function getProp(obj: unknown, key: string): unknown {
-  return obj && typeof obj === "object" ? (obj as Record<string, unknown>)[key] : undefined;
+/** Slice to `max` chars, appending an ellipsis only when truncation actually occurred. */
+function clip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
 /**
@@ -164,20 +166,20 @@ export function parseApiError(body: string): ParsedApiError | undefined {
   try {
     parsed = JSON.parse(body);
   } catch {
-    return { message: redactString(body.slice(0, 200)) };
+    return { message: redactString(clip(body, 200)) };
   }
   const pick = (o: unknown): ParsedApiError => {
     const result: ParsedApiError = {};
     const message = getProp(o, "message");
     const type = getProp(o, "type");
     const code = getProp(o, "code");
-    if (typeof message === "string") result.message = redactString(message.slice(0, 512));
+    if (typeof message === "string") result.message = redactString(clip(message, 512));
     if (typeof type === "string") result.type = type;
     if (typeof code === "string") result.code = code;
     return result;
   };
   const errObj = getProp(parsed, "error");
-  if (typeof errObj === "string") return { message: redactString(errObj.slice(0, 512)) };
+  if (typeof errObj === "string") return { message: redactString(clip(errObj, 512)) };
   if (errObj && typeof errObj === "object") return pick(errObj);
   const top = pick(parsed);
   return Object.keys(top).length > 0 ? top : undefined;
@@ -196,7 +198,7 @@ export function parseRetryAfter(value: string | null | undefined): number | unde
 /** Map an HTTP error response to the right typed error (never storing the raw body). */
 export function errorFromResponse(status: number, body: string, headers: Headers): FuguError {
   const apiError = parseApiError(body);
-  const requestId = headers.get("x-request-id") ?? headers.get("x-requestid") ?? undefined;
+  const requestId = requestIdFrom(headers);
   const retryAfterMs = parseRetryAfter(headers.get("retry-after"));
   const detail = apiError?.message ? `: ${apiError.message}` : "";
   const message = `Fugu API error ${status}${detail}`;
