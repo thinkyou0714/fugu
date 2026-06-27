@@ -1,5 +1,11 @@
 # @thinkyou0714/fugu
 
+## 0.2.1
+
+### Patch Changes
+
+- 4d0eb88: docs: add npm version / CI / license badges to the README.
+
 ## 0.2.0
 
 ### Minor Changes
