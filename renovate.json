@@ -11,6 +11,16 @@
       "description": "Group dev tooling updates",
       "matchDepTypes": ["devDependencies"],
       "groupName": "dev dependencies"
+    },
+    {
+      "description": "Auto-merge low-risk updates once CI passes; npm majors stay manual for review",
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "automerge": true
+    },
+    {
+      "description": "Auto-merge GitHub Actions updates (CI-gated + SHA-pinned)",
+      "matchManagers": ["github-actions"],
+      "automerge": true
     }
   ]
 }
