@@ -1,5 +1,9 @@
 # @thinkyou0714/fugu
 
+[![npm](https://img.shields.io/npm/v/@thinkyou0714/fugu)](https://www.npmjs.com/package/@thinkyou0714/fugu)
+[![CI](https://github.com/thinkyou0714/fugu/actions/workflows/ci.yml/badge.svg)](https://github.com/thinkyou0714/fugu/actions/workflows/ci.yml)
+[![license: MIT](https://img.shields.io/npm/l/@thinkyou0714/fugu)](./LICENSE)
+
 Zero-dependency TypeScript **client + CLI** for the **Sakana Fugu** OpenAI-compatible API.
 
 Fugu is Sakana AI's multi-agent orchestration system exposed as a *single* model behind
