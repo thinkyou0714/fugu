@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm test)",
+      "Bash(npm run typecheck)",
+      "Bash(npm run build)",
+      "Bash(npm run lint)",
+      "Bash(git status)",
+      "Bash(git status --short)",
+      "Bash(git status --porcelain)",
+      "Bash(git log)",
+      "Bash(git log --oneline)",
+      "Bash(git log --oneline --decorate)",
+      "Bash(git diff)",
+      "Bash(git diff --stat)",
+      "Bash(git diff --check)",
+      "Bash(git diff --cached)",
+      "Bash(git diff --cached --stat)",
+      "Bash(git branch)",
+      "Bash(git branch --show-current)"
+    ],
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git push --force-with-lease*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean -f*)",
+      "Bash(git clean -fd*)",
+      "Bash(git clean -xdf*)",
+      "Bash(git clean --force*)",
+      "Bash(git commit --no-verify*)",
+      "Bash(git push --no-verify*)",
+      "Bash(*--no-verify*)",
+      "Bash(rm -rf*)",
+      "Bash(rmdir /s /q*)",
+      "Bash(rd /s /q*)",
+      "Bash(del /s /q*)",
+      "Bash(Remove-Item -Recurse -Force*)",
+      "Bash(Remove-Item -Force -Recurse*)",
+      "Bash(Remove-Item * -Recurse * -Force*)"
+    ]
+  }
+}
