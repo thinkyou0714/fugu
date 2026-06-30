@@ -136,6 +136,56 @@ interface RawResponse {
   requestId?: string;
 }
 
+type StreamKind = "responses" | "chat";
+
+class StreamAggregator {
+  private readonly kind: StreamKind;
+  private text = "";
+  private finalResponse: unknown;
+  private usage: unknown;
+  private finishReason: string | undefined;
+
+  constructor(kind: StreamKind) {
+    this.kind = kind;
+  }
+
+  process(json: unknown): string {
+    const delta = extractStreamDelta(json);
+    if (delta) this.text += delta;
+
+    const f = extractStreamFinal(json);
+    if (f !== undefined) this.finalResponse = f;
+    const u = extractStreamUsage(json);
+    if (u !== undefined) this.usage = u;
+    const fr = extractStreamFinishReason(json);
+    if (fr !== undefined) this.finishReason = fr;
+
+    return delta;
+  }
+
+  finalize(): { raw: unknown; baseText: string; text: string } {
+    const raw = this.buildRaw();
+    const baseText = this.kind === "responses" ? extractResponsesText(raw) : extractChatText(raw);
+    return { raw, baseText, text: this.text };
+  }
+
+  private buildRaw(): unknown {
+    // Prefer the API's terminal payload; otherwise synthesize from accumulated text +
+    // any captured usage WITHOUT claiming "completed" (a truncated stream must not look done).
+    if (this.finalResponse !== undefined) {
+      return this.finalResponse;
+    }
+    if (this.kind === "responses") {
+      return this.usage !== undefined
+        ? { output_text: this.text, usage: this.usage }
+        : { output_text: this.text };
+    }
+    const choice: Record<string, unknown> = { message: { content: this.text } };
+    if (this.finishReason !== undefined) choice.finish_reason = this.finishReason;
+    return this.usage !== undefined ? { choices: [choice], usage: this.usage } : { choices: [choice] };
+  }
+}
+
 export class FuguClient {
   readonly baseUrl: string;
   readonly model: string;
@@ -647,10 +697,7 @@ export class FuguClient {
     }
     if (!res.body) throw new FuguParseError(`No response body to stream (${path}).`, { requestId });
 
-    let text = "";
-    let finalResponse: unknown;
-    let usage: unknown;
-    let finishReason: string | undefined;
+    const aggregator = new StreamAggregator(kind);
     try {
       for await (const msg of parseSSE(res.body)) {
         if (msg.data === "[DONE]") break;
@@ -660,35 +707,16 @@ export class FuguClient {
         } catch {
           continue;
         }
-        const delta = extractStreamDelta(json);
+        const delta = aggregator.process(json);
         if (delta) {
-          text += delta;
           yield { type: "delta", textDelta: delta };
         }
-        const f = extractStreamFinal(json);
-        if (f !== undefined) finalResponse = f;
-        const u = extractStreamUsage(json);
-        if (u !== undefined) usage = u;
-        const fr = extractStreamFinishReason(json);
-        if (fr !== undefined) finishReason = fr;
       }
     } catch (err) {
       throw this.classifyError(err, opts.signal, path, timeoutMs);
     }
 
-    // Prefer the API's terminal payload; otherwise synthesize from accumulated text +
-    // any captured usage WITHOUT claiming "completed" (a truncated stream must not look done).
-    let raw: unknown;
-    if (finalResponse !== undefined) {
-      raw = finalResponse;
-    } else if (kind === "responses") {
-      raw = usage !== undefined ? { output_text: text, usage } : { output_text: text };
-    } else {
-      const choice: Record<string, unknown> = { message: { content: text } };
-      if (finishReason !== undefined) choice.finish_reason = finishReason;
-      raw = usage !== undefined ? { choices: [choice], usage } : { choices: [choice] };
-    }
-    const baseText = kind === "responses" ? extractResponsesText(raw) : extractChatText(raw);
+    const { raw, baseText, text } = aggregator.finalize();
     const result = this.buildResult(raw, model, baseText || text, requestId, {
       ...opts,
       throwOnIncomplete: false,
