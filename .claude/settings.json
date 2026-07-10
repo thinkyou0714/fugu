@@ -1,5 +1,4 @@
 {
-<<<<<<< HEAD
   "permissions": {
     "allow": [
       "Bash(npm test)",
@@ -38,7 +37,8 @@
       "Bash(Remove-Item -Recurse -Force*)",
       "Bash(Remove-Item -Force -Recurse*)",
       "Bash(Remove-Item * -Recurse * -Force*)"
-=======
+    ]
+  },
   "hooks": {
     "SessionStart": [
       {
@@ -50,7 +50,6 @@
           }
         ]
       }
->>>>>>> origin/main
     ]
   }
 }
