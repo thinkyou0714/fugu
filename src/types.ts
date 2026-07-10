@@ -129,32 +129,31 @@ export function parseResponseMeta(raw: unknown): {
   return { id, status, incompleteReason, finishReason };
 }
 
-/** Extract text from a Responses API payload (prefers `output_text`, else aggregates). */
-export function extractResponsesText(raw: unknown): string {
-  const ot = getProp(raw, "output_text");
-  if (typeof ot === "string" && ot !== "") return ot;
-  const parts: string[] = [];
-  const output = getProp(raw, "output");
-  if (Array.isArray(output)) {
-    for (const item of output) {
-      const content = getProp(item, "content");
-      if (Array.isArray(content)) {
-        for (const c of content) {
-          const text = getProp(c, "text");
-          const type = getProp(c, "type");
-          if (typeof text === "string" && (type === "output_text" || type === undefined)) {
-            parts.push(text);
+function extractNestedText(root: unknown, apiKind: "responses" | "chat"): string {
+  if (apiKind === "responses") {
+    const ot = getProp(root, "output_text");
+    if (typeof ot === "string" && ot !== "") return ot;
+
+    const parts: string[] = [];
+    const output = getProp(root, "output");
+    if (Array.isArray(output)) {
+      for (const item of output) {
+        const content = getProp(item, "content");
+        if (Array.isArray(content)) {
+          for (const c of content) {
+            const text = getProp(c, "text");
+            const type = getProp(c, "type");
+            if (typeof text === "string" && (type === "output_text" || type === undefined)) {
+              parts.push(text);
+            }
           }
         }
       }
     }
+    return parts.join("");
   }
-  return parts.join("");
-}
 
-/** Extract text from a Chat Completions payload. */
-export function extractChatText(raw: unknown): string {
-  const choices = getProp(raw, "choices");
+  const choices = getProp(root, "choices");
   if (!Array.isArray(choices) || !choices[0]) return "";
   const content = getProp(getProp(choices[0], "message"), "content");
   if (typeof content === "string") return content;
@@ -164,4 +163,14 @@ export function extractChatText(raw: unknown): string {
       .join("");
   }
   return "";
+}
+
+/** Extract text from a Responses API payload (prefers `output_text`, else aggregates). */
+export function extractResponsesText(raw: unknown): string {
+  return extractNestedText(raw, "responses");
+}
+
+/** Extract text from a Chat Completions payload. */
+export function extractChatText(raw: unknown): string {
+  return extractNestedText(raw, "chat");
 }
