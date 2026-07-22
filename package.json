@@ -84,7 +84,7 @@
     "typescript": "^5.6.0"
   },
   "overrides": {
-    "read-yaml-file": "^2.1.0"
+    "read-yaml-file": "^3.0.0"
   },
   "publishConfig": {
     "access": "public",
