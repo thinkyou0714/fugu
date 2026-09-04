@@ -80,7 +80,7 @@
     "@types/node": "^24.0.0",
     "openai": "^7.0.0",
     "publint": "^0.3.21",
-    "tsdown": "^0.22.3",
+    "tsdown": "^0.23.0",
     "typescript": "^7.0.0"
   },
   "overrides": {
